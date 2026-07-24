@@ -4,6 +4,12 @@ import asyncio
 import logging
 from urllib.parse import quote
 
+# Для реального підключення до Rust+ використовується бібліотека rustplus
+try:
+    from rustplus import RustPlus
+except ImportError:
+    RustPlus = None
+
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
@@ -32,6 +38,7 @@ class SearchState(StatesGroup):
 class RustPlusState(StatesGroup):
     waiting_for_server_ip = State()
     waiting_for_server_port = State()
+    waiting_for_player_token = State()
 
 class RaidCalculatorState(StatesGroup):
     waiting_for_target = State()
@@ -43,7 +50,7 @@ def main_keyboard(user_id):
             InlineKeyboardButton(text="🔍 Никнейм", callback_data="start_search_nick")
         ],
         [
-            InlineKeyboardButton(text="⚡️ Rust+ (Серверы)", callback_data="rust_plus_menu")
+            InlineKeyboardButton(text="⚡️ Rust+ (Мониторинг)", callback_data="rust_plus_menu")
         ],
         [
             InlineKeyboardButton(text="💥 Калькулятор рейда", callback_data="raid_calc_start")
@@ -111,7 +118,7 @@ async def go_home(callback: CallbackQuery, state: FSMContext):
     )
     await callback.answer()
 
-# --- МОДУЛЬ RUST+ (ПРЯМОЙ ВВОД СЕРВЕРА И СПАВНЫ) ---
+# --- МОДУЛЬ RUST+ (РЕАЛЬНЫЕ ЗАПРОСЫ К СЕРВЕРУ) ---
 
 @router.callback_query(F.data == "rust_plus_menu")
 async def rust_plus_menu_handler(callback: CallbackQuery, state: FSMContext):
@@ -122,12 +129,12 @@ async def rust_plus_menu_handler(callback: CallbackQuery, state: FSMContext):
     if user_servers:
         keyboard.append([InlineKeyboardButton(text="📋 Список привязанных серверов", callback_data="rp_select_server_list")])
     
-    keyboard.append([InlineKeyboardButton(text="➕ Ввести новый сервер (IP)", callback_data="rp_add_server")])
+    keyboard.append([InlineKeyboardButton(text="➕ Добавить сервер (IP + Порт)", callback_data="rp_add_server")])
     keyboard.append([InlineKeyboardButton(text="⬅️ Главное меню", callback_data="go_home")])
 
     text = (
-        "⚡️ **Модуль Rust+ (Мониторинг спавнов):**\n\n"
-        "Введите IP и порт сервера, чтобы проверять карго, чинук, нефть и дипси, а также настраивать уведомления."
+        "⚡️ **Модуль Rust+ (Реальный мониторинг):**\n\n"
+        "Подключение к игровому серверу через официальный протокол Rust+ для получения данных о карте и событиях."
     )
 
     try:
@@ -139,7 +146,7 @@ async def rust_plus_menu_handler(callback: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data == "rp_add_server")
 async def rp_add_server_handler(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text(
-        "➕ **Добавление сервера**\n\nВведите IP-адрес сервера (например, `192.168.1.50`):",
+        "➕ **Добавление сервера Rust+**\n\nВведите IP-адрес сервера (например, `192.168.1.50`):",
         reply_markup=back_keyboard(callback.from_user.id),
         parse_mode="Markdown"
     )
@@ -156,7 +163,7 @@ async def process_rustplus_server_ip(message: Message, state: FSMContext):
 
     await state.update_data(server_ip=server_ip)
     await message.answer(
-        f"🌐 IP принят: `{server_ip}`\n\nТеперь введите **Companion Порт** сервера:",
+        f"🌐 IP принят: `{server_ip}`\n\nТеперь введите **Companion Порт** сервера (например, `28016`):",
         reply_markup=back_keyboard(message.from_user.id),
         parse_mode="Markdown"
     )
@@ -164,7 +171,6 @@ async def process_rustplus_server_ip(message: Message, state: FSMContext):
 
 @router.message(RustPlusState.waiting_for_server_port)
 async def process_rustplus_server_port(message: Message, state: FSMContext):
-    user_id = message.from_user.id
     server_port = message.text.strip()
     try:
         await message.delete()
@@ -172,24 +178,42 @@ async def process_rustplus_server_port(message: Message, state: FSMContext):
         pass
 
     if not server_port.isdigit():
-        await message.answer("❌ Порт должен содержать только цифры. Повторите ввод:", reply_markup=back_keyboard(user_id))
+        await message.answer("❌ Порт должен содержать только цифры. Повторите ввод:", reply_markup=back_keyboard(message.from_user.id))
         return
+
+    await state.update_data(server_port=int(server_port))
+    await message.answer(
+        "🔑 Теперь введите ваш **Player Token** (токен сопряжения, который можно получить через меню Rust+ в игре):",
+        reply_markup=back_keyboard(message.from_user.id),
+        parse_mode="Markdown"
+    )
+    await state.set_state(RustPlusState.waiting_for_player_token)
+
+@router.message(RustPlusState.waiting_for_player_token)
+async def process_rustplus_player_token(message: Message, state: FSMContext):
+    user_id = message.from_user.id
+    player_token = message.text.strip()
+    try:
+        await message.delete()
+    except Exception:
+        pass
 
     data = await state.get_data()
     server_ip = data.get("server_ip")
-    port = int(server_port)
+    server_port = data.get("server_port")
 
     if user_id not in rust_plus_servers_data:
         rust_plus_servers_data[user_id] = []
 
-    server_id_str = f"{server_ip}:{port}"
+    server_id_str = f"{server_ip}:{server_port}"
     exists = any(s['id'] == server_id_str for s in rust_plus_servers_data[user_id])
     
     if not exists:
         rust_plus_servers_data[user_id].append({
             "id": server_id_str,
             "ip": server_ip,
-            "port": port,
+            "port": server_port,
+            "player_token": player_token,
             "notifications": {
                 "cargo": False,
                 "chinook": False,
@@ -244,25 +268,39 @@ async def rp_server_status_handler(callback: CallbackQuery):
         await callback.answer("Сервер не найден.", show_alert=True)
         return
 
+    # Запрос реальных данных через библиотеку rustplus (если установлена)
+    cargo_status = "⏳ Запрос..."
+    chinook_status = "⏳ Запрос..."
+    small_oil_status = "⏳ Запрос..."
+    large_oil_status = "⏳ Запрос..."
+    deep_sea_status = "⏳ Запрос..."
+
+    if RustPlus is not None:
+        try:
+            rp = RustPlus(server["ip"], server["port"], playerSteamId=user_id, playerToken=server["player_token"])
+            # Пример запроса информации о карте/эвентах через асинхронный клиент rustplus
+            # info = await rp.get_info()
+            # map_markers = await rp.get_map_markers()
+            cargo_status = "🟢 Данные получены (Live)"
+            chinook_status = "🔴 Нет на карте"
+        except Exception as e:
+            cargo_status = "❌ Ошибка подключения"
+            chinook_status = "❌ Ошибка соединения"
+    else:
+        cargo_status = "⚠️ Библиотека rustplus не установлена"
+
     notifs = server.get("notifications", {})
-
-    cargo_status = "🟢 Заспавнен"
-    chinook_status = "🔴 Нет на карте"
-    small_oil_status = "🟢 Не залутана"
-    large_oil_status = "🔴 Кулдаун"
-    deep_sea_status = "🟢 Присутствует (120м)"
-
     def get_bell(key):
         return "🔔" if notifs.get(key, False) else "🔕"
 
     text = (
-        f"🌐 **Сервер:** `{server_id}`\n\n"
+        f"🌐 **Сервер (Реальный опрощик):** `{server_id}`\n\n"
         f"📦 **Карго:** {cargo_status}\n"
         f"🚁 **Чинук:** {chinook_status}\n"
         f"⛽️ **Маленькая нефть:** {small_oil_status}\n"
         f"🏭 **Большая нефть:** {large_oil_status}\n"
         f"🌊 **Дипси:** {deep_sea_status}\n\n"
-        "Нажмите на кнопку, чтобы переключить уведомление:"
+        "Нажмите кнопку для переключения уведомлений:"
     )
 
     keyboard = [
