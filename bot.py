@@ -2,7 +2,7 @@ import os
 import aiohttp
 import asyncio
 import logging
-from urllib.parse import quote, urlencode
+from urllib.parse import quote
 
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.filters import Command
@@ -14,7 +14,6 @@ logging.basicConfig(level=logging.INFO)
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 STEAM_API_KEY = os.getenv("STEAM_API_KEY")
-BOT_DOMAIN = os.getenv("BOT_DOMAIN", "https://your-bot-domain.com")
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
@@ -24,7 +23,7 @@ active_trackers = {}
 tracked_players_list = {}
 search_cache = {}
 last_search_message = {}
-rust_plus_auth_data = {}
+rust_plus_servers_data = {}
 
 class SearchState(StatesGroup):
     waiting_for_steam_id = State()
@@ -105,52 +104,25 @@ async def go_home(callback: CallbackQuery, state: FSMContext):
     )
     await callback.answer()
 
-# --- МОДУЛЬ RUST+ (СЕВЕРЫ И МОНИТОРИНГ СПАВНОВ) ---
+# --- МОДУЛЬ RUST+ (ПРЯМОЙ ВВОД СЕРВЕРА И СПАВНЫ) ---
 
 @router.callback_query(F.data == "rust_plus_menu")
 async def rust_plus_menu_handler(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
-    user_session = rust_plus_auth_data.get(user_id)
+    user_servers = rust_plus_servers_data.get(user_id, [])
 
-    if user_session and user_session.get("authenticated"):
-        steam_id = user_session.get("steam_id")
-        servers = user_session.get("servers", [])
-        
-        keyboard = []
-        if servers:
-            keyboard.append([InlineKeyboardButton(text="📡 Выбрать сервер для мониторинга", callback_data="rp_select_server_list")])
-        
-        keyboard.append([InlineKeyboardButton(text="➕ Добавить сервер по IP", callback_data="rp_add_server")])
-        keyboard.append([InlineKeyboardButton(text="🚪 Выйти из аккаунта Steam", callback_data="rp_logout")])
-        keyboard.append([InlineKeyboardButton(text="⬅️ Главное меню", callback_data="go_home")])
+    keyboard = []
+    if user_servers:
+        keyboard.append([InlineKeyboardButton(text="📋 Выбрать привязанный сервер", callback_data="rp_select_server_list")])
+    
+    keyboard.append([InlineKeyboardButton(text="➕ Ввести новый сервер (IP)", callback_data="rp_add_server")])
+    keyboard.append([InlineKeyboardButton(text="⬅️ Главное меню", callback_data="go_home")])
 
-        servers_count = len(servers)
-        text = (
-            "⚡️ **Модуль Rust+ (Авторизован через Steam):**\n\n"
-            f"👤 **Ваш Steam ID:** `{steam_id}`\n"
-            f"🌐 **Подключено серверов:** {servers_count}\n\n"
-            "Выберите нужный раздел:"
-        )
-    else:
-        openid_params = {
-            "openid.ns": "http://specs.openid.net/auth/2.0",
-            "openid.mode": "checkid_setup",
-            "openid.return_to": f"{BOT_DOMAIN}/steam_auth_callback?user_id={user_id}",
-            "openid.realm": BOT_DOMAIN,
-            "openid.identity": "http://specs.openid.net/auth/2.0/identifier_select",
-            "openid.claimed_id": "http://specs.openid.net/auth/2.0/identifier_select"
-        }
-        steam_login_url = f"https://steamcommunity.com/login/loginredirect/?{urlencode(openid_params)}"
-
-        text = (
-            "⚡️ **Модуль Rust+ (Авторизация через Steam):**\n\n"
-            "Для использования Rust+ требуется авторизоваться через **настоящий Steam**. "
-            "Нажмите кнопку ниже, чтобы войти через официальную безопасную страницу Steam OpenID:"
-        )
-        keyboard = [
-            [InlineKeyboardButton(text="🔑 Войти через Steam", url=steam_login_url)],
-            [InlineKeyboardButton(text="⬅️ Главное меню", callback_data="go_home")]
-        ]
+    text = (
+        "⚡️ **Модуль Rust+ (Мониторинг спавнов):**\n\n"
+        "Здесь вы можете ввести IP и порт сервера, чтобы проверять карго, чинук, нефть и дипси.\n\n"
+        "Выберите действие:"
+    )
 
     try:
         await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard), parse_mode="Markdown")
@@ -158,17 +130,10 @@ async def rust_plus_menu_handler(callback: CallbackQuery, state: FSMContext):
         await callback.message.answer(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard), parse_mode="Markdown")
     await callback.answer()
 
-@router.callback_query(F.data == "rp_logout")
-async def rp_logout_handler(callback: CallbackQuery, state: FSMContext):
-    user_id = callback.from_user.id
-    rust_plus_auth_data.pop(user_id, None)
-    await callback.answer("🚪 Вы успешно вышли из Steam аккаунта в Rust+.", show_alert=True)
-    await rust_plus_menu_handler(callback, state)
-
 @router.callback_query(F.data == "rp_add_server")
 async def rp_add_server_handler(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text(
-        "➕ **Добавление сервера Rust+**\n\nВведите IP адрес сервера:",
+        "➕ **Добавление сервера**\n\nВведите IP адрес сервера (например, `192.168.1.50` или домен):",
         reply_markup=back_keyboard(callback.from_user.id),
         parse_mode="Markdown"
     )
@@ -185,7 +150,7 @@ async def process_rustplus_server_ip(message: Message, state: FSMContext):
 
     await state.update_data(server_ip=server_ip)
     await message.answer(
-        "🌐 Введите **Companion Порт** сервера (например, `28082`):",
+        f"🌐 IP принят: `{server_ip}`\n\nТеперь введите **Companion Порт** сервера (например, `28082`):",
         reply_markup=back_keyboard(message.from_user.id),
         parse_mode="Markdown"
     )
@@ -201,20 +166,21 @@ async def process_rustplus_server_port(message: Message, state: FSMContext):
         pass
 
     if not server_port.isdigit():
-        await message.answer("❌ Порт должен состоять только из цифр:", reply_markup=back_keyboard(user_id))
+        await message.answer("❌ Порт должен состоять только из цифр. Введите порт еще раз:", reply_markup=back_keyboard(user_id))
         return
 
     data = await state.get_data()
     server_ip = data.get("server_ip")
     port = int(server_port)
 
-    if user_id not in rust_plus_auth_data:
-        rust_plus_auth_data[user_id] = {"authenticated": True, "steam_id": "76561198xxxxxxxxx", "servers": []}
+    if user_id not in rust_plus_servers_data:
+        rust_plus_servers_data[user_id] = []
 
     server_id_str = f"{server_ip}:{port}"
-    exists = any(s['id'] == server_id_str for s in rust_plus_auth_data[user_id]["servers"])
+    exists = any(s['id'] == server_id_str for s in rust_plus_servers_data[user_id])
+    
     if not exists:
-        rust_plus_auth_data[user_id]["servers"].append({
+        rust_plus_servers_data[user_id].append({
             "id": server_id_str,
             "ip": server_ip,
             "port": port,
@@ -228,19 +194,20 @@ async def process_rustplus_server_port(message: Message, state: FSMContext):
         })
 
     await state.clear()
-    await message.answer(
-        f"✅ Сервер `{server_ip}:{port}` успешно добавлен и привязан!",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="⚡️ В меню Rust+", callback_data="rust_plus_menu")]
-        ]),
-        parse_mode="Markdown"
+    
+    fake_callback = CallbackQuery(
+        id="0",
+        from_user=message.from_user,
+        chat_instance="0",
+        message=message,
+        data=f"rp_server_{server_id_str}"
     )
+    await rp_server_status_handler(fake_callback)
 
 @router.callback_query(F.data == "rp_select_server_list")
 async def rp_select_server_list_handler(callback: CallbackQuery):
     user_id = callback.from_user.id
-    user_session = rust_plus_auth_data.get(user_id, {})
-    servers = user_session.get("servers", [])
+    servers = rust_plus_servers_data.get(user_id, [])
 
     if not servers:
         await callback.answer("У вас нет привязанных серверов.", show_alert=True)
@@ -253,7 +220,7 @@ async def rp_select_server_list_handler(callback: CallbackQuery):
     keyboard.append([InlineKeyboardButton(text="⬅️ Назад в меню Rust+", callback_data="rust_plus_menu")])
 
     await callback.message.edit_text(
-        "📋 **Ваши привязанные серверы:**\n\nВыберите сервер для проверки спавнов и настройки уведомлений:",
+        "📋 **Ваши привязанные серверы:**\n\nВыберите сервер из списка:",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard),
         parse_mode="Markdown"
     )
@@ -264,8 +231,7 @@ async def rp_server_status_handler(callback: CallbackQuery):
     user_id = callback.from_user.id
     server_id = callback.data.replace("rp_server_", "")
     
-    user_session = rust_plus_auth_data.get(user_id, {})
-    servers = user_session.get("servers", [])
+    servers = rust_plus_servers_data.get(user_id, [])
     server = next((s for s in servers if s['id'] == server_id), None)
 
     if not server:
@@ -278,36 +244,36 @@ async def rp_server_status_handler(callback: CallbackQuery):
     chinook_status = "🔴 Нет на карте"
     small_oil_status = "🟢 Заспавнена (Не залутана)"
     large_oil_status = "🔴 Залутана / Кулдаун"
-    deep_sea_status = "🟢 Рядом"
-    deep_sea_dist = "150м"
+    deep_sea_status = "🟢 Присутствует"
+    deep_sea_dist = "120м"
 
     def get_bell(key):
         return "🔔" if notifs.get(key, False) else "🔕"
 
     text = (
         f"🌐 **Сервер:** `{server_id}`\n\n"
-        f"🚢 **Карго:** {cargo_status}\n"
+        f"📦 **Карго:** {cargo_status}\n"
         f"🚁 **Чинук:** {chinook_status}\n"
         f"⛽️ **Маленькая нефть:** {small_oil_status}\n"
         f"🏭 **Большая нефть:** {large_oil_status}\n"
         f"🌊 **Дипси:** {deep_sea_status} (до дипси: {deep_sea_dist})\n\n"
-        "Нажмите на кнопку ниже, чтобы включить или выключить уведомления по конкретному событию:"
+        "Нажмите на кнопку ниже, чтобы включить/выключить уведомление для конкретного спавна:"
     )
 
     keyboard = [
-        [InlineKeyboardButton(text=f"{get_bell('cargo')} Уведомление: Карго", callback_data=f"rp_toggle_{server_id}_cargo")],
-        [InlineKeyboardButton(text=f"{get_bell('chinook')} Уведомление: Чинук", callback_data=f"rp_toggle_{server_id}_chinook")],
-        [InlineKeyboardButton(text=f"{get_bell('small_oil')} Уведомление: Мал. нефть", callback_data=f"rp_toggle_{server_id}_small_oil")],
-        [InlineKeyboardButton(text=f"{get_bell('large_oil')} Уведомление: Бол. нефть", callback_data=f"rp_toggle_{server_id}_large_oil")],
-        [InlineKeyboardButton(text=f"{get_bell('deep_sea')} Уведомление: Дипси", callback_data=f"rp_toggle_{server_id}_deep_sea")],
-        [InlineKeyboardButton(text="🔄 Обновить статус", callback_data=f"rp_server_{server_id}")],
+        [InlineKeyboardButton(text=f"{get_bell('cargo')} Карго", callback_data=f"rp_toggle_{server_id}_cargo")],
+        [InlineKeyboardButton(text=f"{get_bell('chinook')} Чинук", callback_data=f"rp_toggle_{server_id}_chinook")],
+        [InlineKeyboardButton(text=f"{get_bell('small_oil')} Маленькая нефть", callback_data=f"rp_toggle_{server_id}_small_oil")],
+        [InlineKeyboardButton(text=f"{get_bell('large_oil')} Большая нефть", callback_data=f"rp_toggle_{server_id}_large_oil")],
+        [InlineKeyboardButton(text=f"{get_bell('deep_sea')} Дипси", callback_data=f"rp_toggle_{server_id}_deep_sea")],
+        [InlineKeyboardButton(text="🔄 Обновить", callback_data=f"rp_server_{server_id}")],
         [InlineKeyboardButton(text="⬅️ К списку серверов", callback_data="rp_select_server_list")]
     ]
 
     try:
         await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard), parse_mode="Markdown")
     except Exception:
-        pass
+        await callback.message.answer(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard), parse_mode="Markdown")
     await callback.answer()
 
 @router.callback_query(F.data.startswith("rp_toggle_"))
@@ -323,8 +289,7 @@ async def rp_toggle_notification(callback: CallbackQuery):
             server_id = data_payload[:-len(ev)-1]
             break
 
-    user_session = rust_plus_auth_data.get(user_id, {})
-    servers = user_session.get("servers", [])
+    servers = rust_plus_servers_data.get(user_id, [])
     server = next((s for s in servers if s['id'] == server_id), None)
 
     if server:
@@ -377,7 +342,7 @@ async def show_tracked_list(callback: CallbackQuery):
 @router.callback_query(F.data == "about_bot")
 async def about_bot(callback: CallbackQuery):
     await callback.message.edit_text(
-        "ℹ️ **О боте:**\n\nПоиск профилей Steam по точному никнейму или Steam ID.",
+        "ℹ️ **О боте:**\n\nПоиск профилей Steam и мониторинг серверов Rust+.",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="⬅️ Назад", callback_data="go_home")]
         ]),
@@ -401,7 +366,7 @@ async def start_search_id(callback: CallbackQuery, state: FSMContext):
 async def start_search_nick(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
     await callback.message.edit_text(
-        "Введите **точное имя (ник)** игрока (например, `aVudi`):",
+        "Введите **точное имя (ник)** игрока:",
         reply_markup=stop_search_keyboard(),
         parse_mode="Markdown"
     )
@@ -477,7 +442,7 @@ async def process_nickname_input(message: Message, state: FSMContext):
                     pass
 
     if not found_players:
-        err_text = f"❌ По точному запросу **{query}** ничего не найдено.\n\nПопробуйте ввести другой ник:"
+        err_text = f"❌ По запросу **{query}** ничего не найдено."
         if msg_id:
             try:
                 await bot.edit_message_text(err_text, chat_id=user_id, message_id=msg_id, reply_markup=stop_search_keyboard(), parse_mode="Markdown")
@@ -522,7 +487,7 @@ async def send_search_page(user_id: int, page: int = 0):
 
     keyboard.append([InlineKeyboardButton(text="🛑 Прекратить поиск", callback_data="go_home")])
 
-    text = f"🔍 Найдено несколько игроков по запросу **{nickname}** (Страница {page + 1} из {total_pages}):\n\nВыберите нужного:"
+    text = f"🔍 Найдено игроков по запросу **{nickname}** (Страница {page + 1} из {total_pages}):"
     try:
         await bot.edit_message_text(text, chat_id=user_id, message_id=msg_id, reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard), parse_mode="Markdown")
     except Exception:
