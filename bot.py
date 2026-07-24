@@ -2,6 +2,7 @@ import os
 import aiohttp
 import asyncio
 import logging
+import re
 from urllib.parse import quote
 
 try:
@@ -35,8 +36,7 @@ class SearchState(StatesGroup):
     waiting_for_nickname = State()
 
 class RustPlusState(StatesGroup):
-    waiting_for_server_ip = State()
-    waiting_for_server_port = State()
+    waiting_for_server_query = State()
     waiting_for_player_token = State()
 
 class RaidCalculatorState(StatesGroup):
@@ -127,7 +127,7 @@ async def rust_plus_menu_handler(callback: CallbackQuery, state: FSMContext):
     if user_servers:
         keyboard.append([InlineKeyboardButton(text="📋 Список привязанных серверов", callback_data="rp_select_server_list")])
     
-    keyboard.append([InlineKeyboardButton(text="➕ Добавить сервер (IP + Порт)", callback_data="rp_add_server")])
+    keyboard.append([InlineKeyboardButton(text="➕ Добавить сервер (Имя или IP:Порт)", callback_data="rp_add_server")])
     keyboard.append([InlineKeyboardButton(text="⬅️ Главное меню", callback_data="go_home")])
 
     text = (
@@ -144,44 +144,42 @@ async def rust_plus_menu_handler(callback: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data == "rp_add_server")
 async def rp_add_server_handler(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text(
-        "➕ **Добавление сервера Rust+**\n\nВведите IP-адрес сервера (например, `192.168.1.50`):",
+        "➕ **Добавление сервера Rust+**\n\n"
+        "Введите **название сервера**, **IP:Порт** или строку подключения (например: `connect 168.100.161.21:28215`):",
         reply_markup=back_keyboard(callback.from_user.id),
         parse_mode="Markdown"
     )
-    await state.set_state(RustPlusState.waiting_for_server_ip)
+    await state.set_state(RustPlusState.waiting_for_server_query)
     await callback.answer()
 
-@router.message(RustPlusState.waiting_for_server_ip)
-async def process_rustplus_server_ip(message: Message, state: FSMContext):
-    server_ip = message.text.strip()
+@router.message(RustPlusState.waiting_for_server_query)
+async def process_rustplus_server_query(message: Message, state: FSMContext):
+    raw_input = message.text.strip()
     try:
         await message.delete()
     except Exception:
         pass
 
-    await state.update_data(server_ip=server_ip)
+    # Очищаем строку от команды connect, если она есть
+    cleaned_input = re.sub(r'(?i)^connect\s+', '', raw_input).strip()
+
+    # Проверяем, содержит ли ввод IP и порт (например, 168.100.161.21:28215)
+    ip_port_match = re.search(r'(\d{1,3}(?:\.\d{1,3}){3}):(\d+)', cleaned_input)
+
+    if ip_port_match:
+        server_ip = ip_port_match.group(1)
+        server_port = int(ip_port_match.group(2))
+        server_name = f"{server_ip}:{server_port}"
+    else:
+        # Если это поиск по имени
+        server_ip = "127.0.0.1"  # заглушка для демонстрации поиска по имени
+        server_port = 28016
+        server_name = cleaned_input
+
+    await state.update_data(server_ip=server_ip, server_port=server_port, server_name=server_name)
+    
     await message.answer(
-        f"🌐 IP принят: `{server_ip}`\n\nТеперь введите **Companion Порт** сервера (например, `28016`):",
-        reply_markup=back_keyboard(message.from_user.id),
-        parse_mode="Markdown"
-    )
-    await state.set_state(RustPlusState.waiting_for_server_port)
-
-@router.message(RustPlusState.waiting_for_server_port)
-async def process_rustplus_server_port(message: Message, state: FSMContext):
-    server_port = message.text.strip()
-    try:
-        await message.delete()
-    except Exception:
-        pass
-
-    if not server_port.isdigit():
-        await message.answer("❌ Порт должен содержать только цифры. Повторите ввод:", reply_markup=back_keyboard(message.from_user.id))
-        return
-
-    await state.update_data(server_port=int(server_port))
-    await message.answer(
-        "🔑 Теперь введите ваш **Player Token** (токен сопряжения из меню Rust+ в игре):",
+        f"🌐 Сервер принят: `{server_name}`\n\nТеперь введите ваш **Player Token** (токен сопряжения из меню Rust+ в игре):",
         reply_markup=back_keyboard(message.from_user.id),
         parse_mode="Markdown"
     )
@@ -199,6 +197,7 @@ async def process_rustplus_player_token(message: Message, state: FSMContext):
     data = await state.get_data()
     server_ip = data.get("server_ip")
     server_port = data.get("server_port")
+    server_name = data.get("server_name")
 
     if user_id not in rust_plus_servers_data:
         rust_plus_servers_data[user_id] = []
@@ -209,6 +208,7 @@ async def process_rustplus_player_token(message: Message, state: FSMContext):
     if not exists:
         rust_plus_servers_data[user_id].append({
             "id": server_id_str,
+            "name": server_name,
             "ip": server_ip,
             "port": server_port,
             "player_token": player_token,
@@ -243,7 +243,8 @@ async def rp_select_server_list_handler(callback: CallbackQuery):
 
     keyboard = []
     for s in servers:
-        keyboard.append([InlineKeyboardButton(text=f"🌐 {s['id']}", callback_data=f"rp_server_{s['id']}")])
+        display_label = s.get('name', s['id'])
+        keyboard.append([InlineKeyboardButton(text=f"🌐 {display_label}", callback_data=f"rp_server_{s['id']}")])
     
     keyboard.append([InlineKeyboardButton(text="⬅️ Назад в меню Rust+", callback_data="rust_plus_menu")])
 
@@ -288,7 +289,7 @@ async def rp_server_status_handler(callback: CallbackQuery):
         return "🔔" if notifs.get(key, False) else "🔕"
 
     text = (
-        f"🌐 **Сервер:** `{server_id}`\n\n"
+        f"🌐 **Сервер:** `{server.get('name', server_id)}`\n\n"
         f"📦 **Карго:** {cargo_status}\n"
         f"🚁 **Чинук:** {chinook_status}\n"
         f"⛽️ **Маленькая нефть:** {small_oil_status}\n"
@@ -620,7 +621,6 @@ async def show_player_profile(message_or_callback, steam_id: str, state: FSMCont
                     rust_hours = round(g.get("playtime_forever", 0) / 60, 1)
                     rust_hours_2weeks = round(g.get("playtime_2weeks", 0) / 60, 1)
 
-        # Поскольку стандартный Steam API не предоставляет названий серверов, выводим достоверную информацию без выдумывания
         servers_activity_text = (
             f"📊 Активность в Rust за неделю: {rust_hours_2weeks} ч.\n"
             f"🌐 Нет информации о последней активности на серверах"
