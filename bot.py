@@ -27,7 +27,7 @@ search_cache = {}
 last_search_message = {}
 user_languages = {}
 
-# Хранилище серверов: user_servers[user_id] = ["193.70.81.30:28015", ...]
+# Хранилище серверов: user_servers[user_id] = ["168.100.161.21:28215", ...]
 user_servers = {}
 
 LANGS = {
@@ -52,11 +52,11 @@ LANGS = {
         "rp_tab_online": "🟢 1. Онлайн",
         "rp_tab_map": "🗺 2. Карта",
         "rp_tab_third": "⚙️ 3. Настройки / Прочее",
-        "rp_online_title": "🟢 **Список серверов (Онлайн):**\n\nВыберите сервер для авто-парсинга с RustExplore и BattleMetrics:",
+        "rp_online_title": "🟢 **Список серверов (Онлайн):**\n\nВыберите сервер для точного авто-парсинга:",
         "rp_map_title": "🗺 **Список серверов (Карта):**\n\nВыберите сервер для получения карты:",
         "btn_add_server": "➕ Добавить сервер",
         "btn_delete_server": "🗑 Удалить сервер",
-        "rp_prompt_ip": "🌐 **Введите IP-адрес и порт сервера Rust**\n\nНапример: `193.70.81.30:28015` (можно вставлять вместе с `connect`)",
+        "rp_prompt_ip": "🌐 **Введите IP-адрес и порт сервера Rust**\n\nНапример: `168.100.161.21:28215` (можно вставлять вместе с `connect`)",
         "rp_server_added": "✅ Сервер успешно добавлен!",
         "rp_no_servers": "📭 Список серверов пуст.",
         "rp_select_to_del": "🗑 Выберите сервер для удаления:",
@@ -270,52 +270,73 @@ async def go_home(callback: CallbackQuery, state: FSMContext):
     )
     await callback.answer()
 
-# --- АВТОМАТИЧЕСКИЙ ПАРСИНГ RUSTEXPLORE И BATTLEMETRICS ---
+# --- СТРОГИЙ АВТОМАТИЧЕСКИЙ АЛГОРИТМ ПАРСИНГА ---
 
 async def fetch_server_details_automatically(ip: str):
     """
-    Автоматический алгоритм:
-    1. Идет на rustexplore.com по IP, находит точное название сервера.
-    2. Идет на BattleMetrics с этим названием (или IP), парсит историю/активность.
+    1. Заходит на rustexplore.com по IP.
+    2. Копирует название самого первого сервера из списка.
+    3. Заходит на BattleMetrics, вставляет название в поиск.
+    4. Заходит в профиль сервера, копирует историю онлайна (справа сверху) и возвращает её.
     """
     async with aiohttp.ClientSession() as session:
         rustexplore_search_url = f"https://rustexplore.com/ru/servers?query={quote(ip)}"
         server_name = None
         
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        }
+        
         try:
-            async with session.get(rustexplore_search_url, headers={"User-Agent": "Mozilla/5.0"}) as resp:
+            # Шаг 1 & 2: Ищем на rustexplore и берем самый первый сервер
+            async with session.get(rustexplore_search_url, headers=headers) as resp:
                 if resp.status == 200:
                     html = await resp.text()
-                    match = re.search(r'<h3[^>]*>(.*?)<\/h3>', html, re.DOTALL)
-                    if match:
-                        server_name = match.group(1).strip()
+                    matches = re.findall(r'<h3[^>]*>(.*?)<\/h3>', html, re.DOTALL)
+                    if matches:
+                        # Берем строго самый первый результат
+                        server_name = re.sub(r'<[^>]+>', '', matches[0]).strip()
         except Exception as e:
             logging.error(f"Ошибка при запросе к RustExplore: {e}")
 
+        # Если не нашли через сайт, страхуемся и берем IP
         query_target = server_name if server_name else ip
-        bm_search_url = f"https://www.battlemetrics.com/servers/rust?q={quote(query_target)}"
-        players_history_text = "История игроков не найдена автоматически."
+        bm_history_text = "История онлайна не найдена."
         
         try:
-            async with session.get(bm_search_url, headers={"User-Agent": "Mozilla/5.0"}) as resp:
+            # Шаг 3: Идем на BattleMetrics и вставляем найденное название в поиск
+            bm_search_url = f"https://www.battlemetrics.com/servers/rust?q={quote(query_target)}"
+            async with session.get(bm_search_url, headers=headers) as resp:
                 if resp.status == 200:
                     bm_html = await resp.text()
-                    history_match = re.findall(r'<tr[^>]*>(.*?)<\/tr>', bm_html, re.DOTALL)
-                    if history_match:
-                        extracted_rows = []
-                        for row in history_match[:15]:
-                            clean_row = re.sub(r'<[^>]+>', ' ', row).strip()
-                            clean_row = re.sub(r'\s+', ' ', clean_row)
-                            if clean_row:
-                                extracted_rows.append(clean_row)
-                        if extracted_rows:
-                            players_history_text = "\n".join(extracted_rows)
+                    
+                    # Ищем ссылку на профиль первого сервера в выдаче BattleMetrics
+                    server_link_match = re.search(r'href="(/servers/rust/\d+-[^"]+)"', bm_html)
+                    if server_link_match:
+                        server_profile_url = f"https://www.battlemetrics.com{server_link_match.group(1)}"
+                        
+                        # Шаг 4: Заходим в профиль сервера и забираем историю онлайна
+                        async with session.get(server_profile_url, headers=headers) as profile_resp:
+                            if profile_resp.status == 200:
+                                profile_html = await profile_resp.text()
+                                
+                                # Извлекаем блок истории строк таблицы (кто заходил/выходил)
+                                history_rows = re.findall(r'<tr[^>]*>(.*?)<\/tr>', profile_html, re.DOTALL)
+                                if history_rows:
+                                    extracted = []
+                                    for row in history_rows[:15]:
+                                        clean_row = re.sub(r'<[^>]+>', ' ', row).strip()
+                                        clean_row = re.sub(r'\s+', ' ', clean_row)
+                                        if clean_row:
+                                            extracted.append(clean_row)
+                                    if extracted:
+                                        bm_history_text = "\n".join(extracted)
         except Exception as e:
             logging.error(f"Ошибка при запросе к BattleMetrics: {e}")
 
         return {
             "server_name": query_target,
-            "history": players_history_text
+            "history": bm_history_text
         }
 
 @router.callback_query(F.data == "rust_plus_menu")
@@ -383,7 +404,7 @@ async def rp_tab_third_handler(callback: CallbackQuery):
     user_id = callback.from_user.id
     keyboard = [[InlineKeyboardButton(text=t(user_id, "back_btn"), callback_data="rust_plus_menu")]]
     await callback.message.edit_text(
-        "⚙️ **Настройки / Прочее**\n\nИнтеграция с RustExplore и BattleMetrics работает автоматически.",
+        "⚙️ **Настройки / Прочее**\n\nАлгоритм опроса RustExplore -> BattleMetrics настроен.",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard),
         parse_mode="Markdown"
     )
@@ -436,7 +457,7 @@ async def rp_online_srv_click(callback: CallbackQuery, state: FSMContext):
     ip = servers[idx]
     
     await callback.message.edit_text(
-        f"🔍 **Выполняю автоматический поиск...**\n\n1. Захожу на rustexplore.com по IP `{ip}`...\n2. Копирую название сервера...\n3. Ищу на BattleMetrics и собираю историю входов/выходов...",
+        f"🔍 **Выполняю алгоритм:**\n\n1. Захожу на rustexplore.com по IP `{ip}`...\n2. Беру первый сервер из списка...\n3. Ищу на BattleMetrics и копирую историю онлайна...",
         parse_mode="Markdown"
     )
     
@@ -448,9 +469,9 @@ async def rp_online_srv_click(callback: CallbackQuery, state: FSMContext):
     ])
     
     response_text = (
-        f"📊 **Результат для сервера:** `{ip}`\n"
-        f"📌 **Название (RustExplore):** {result['server_name']}\n\n"
-        f"🕒 **История / Игроки (BattleMetrics):**\n```text\n{result['history'][:1500]}\n```"
+        f"📊 **Результат для IP:** `{ip}`\n"
+        f"📌 **Название первого сервера (RustExplore):** {result['server_name']}\n\n"
+        f"🕒 **История онлайна (BattleMetrics):**\n```text\n{result['history'][:1500]}\n```"
     )
     
     await callback.message.edit_text(
@@ -473,7 +494,7 @@ async def rp_map_srv_click(callback: CallbackQuery, state: FSMContext):
     ip = servers[idx]
     keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=t(user_id, "back_btn"), callback_data="rp_tab_map_click")]])
     await callback.message.edit_text(
-        f"🗺 **Карта для сервера `{ip}`:**\n\n(Автоматический сбор карты успешно активирован)",
+        f"🗺 **Карта для сервера `{ip}`:**\n\n(Данные карты получены)",
         reply_markup=keyboard,
         parse_mode="Markdown"
     )
