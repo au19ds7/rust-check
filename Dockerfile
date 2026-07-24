@@ -2,7 +2,7 @@ FROM python:3.10-slim
 
 WORKDIR /app
 
-# Встановлюємо системні залежності, необхідні для роботи браузера Playwright
+# Встановлюємо системні залежності включно з libxkbcommon0
 RUN apt-get update && apt-get install -y \
     wget \
     gnupg \
@@ -36,13 +36,14 @@ RUN apt-get update && apt-get install -y \
     ca-certificates \
     fonts-liberation \
     libasound2 \
+    libxkbcommon0 \
+    libwayland-client0 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY . /app
 
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Встановлюємо сам браузер Chromium для Playwright усередину контейнера
 RUN playwright install chromium
 
 CMD ["python", "bot.py"]
