@@ -773,7 +773,4 @@ async def rp_view_server_details(callback: CallbackQuery):
     history_snippet = info['history'][:600]
     server_title = info['server_name']
     
-    text = (
-        f"🟢 **Сервер:** `{server_title}`\n\n"
-        f"📋 **Последняя активность / История:**\n"
-        f"```text\n{history_snippet}\n
+    code_block = "```text\n" + history_snippet + "\n
