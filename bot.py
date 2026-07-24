@@ -773,13 +773,10 @@ async def rp_view_server_details(callback: CallbackQuery):
     history_snippet = info['history'][:600]
     server_title = info['server_name']
     
-    b = chr(96) * 3
-    code_block = f"{b}text\n{history_snippet}\n{b}"
-    
     text = (
         f"🟢 **Сервер:** `{server_title}`\n\n"
         f"📋 **Последняя активность / История:**\n"
-        f"{code_block}"
+        f"```text\n{history_snippet}\n```"
     )
     keyboard = [[InlineKeyboardButton(text=t(user_id, "back_btn"), callback_data="rust_plus_menu")]]
     await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard), parse_mode="Markdown")
@@ -873,24 +870,12 @@ async def zayats_menu_start(callback: CallbackQuery, state: FSMContext):
 
 async def take_search_screenshot(query_text: str, output_path: str) -> bool:
     async with async_playwright() as p:
-        browser = await p.chromium.launch(
-            headless=False,
-            args=[
-                "--disable-blink-features=AutomationControlled",
-                "--no-sandbox",
-                "--disable-setuid-sandbox",
-            ]
-        )
-        context = await browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-            viewport={"width": 1280, "height": 800},
-            locale="ru-RU"
-        )
-        page = await context.new_page()
+        browser = await p.chromium.launch(headless=True)
+        page = await browser.new_page(viewport={"width": 1280, "height": 800})
         try:
             search_url = f"https://rust.destiny.ie/ru/search?q={quote(query_text)}"
-            await page.goto(search_url, timeout=45000, wait_until="domcontentloaded")
-            await page.wait_for_timeout(6000)
+            await page.goto(search_url, timeout=35000)
+            await page.wait_for_timeout(4000)
             await page.screenshot(path=output_path, full_page=True)
             await browser.close()
             return True
