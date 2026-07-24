@@ -74,6 +74,7 @@ def result_keyboard(steam_id, is_tracked=False):
         
     return InlineKeyboardMarkup(inline_keyboard=[
         [track_btn],
+        [InlineKeyboardButton(text="⬅️ К списку результатов", callback_data="back_to_search_list")],
         [InlineKeyboardButton(text="⬅️ Вернуться на самое начало", callback_data="go_home")]
     ])
 
@@ -375,8 +376,6 @@ async def process_nickname_input(message: Message, state: FSMContext):
             pass
 
     search_url = f"https://steamcommunity.com/search/users/?l=russian#text={quote(query)}"
-    
-    # Фактический запрос для парсинга пойдет на эндпоинт поиска Steam
     api_search_url = f"https://steamcommunity.com/search/users/?l=russian&text={quote(query)}"
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -476,7 +475,7 @@ async def send_search_page(user_id: int, page: int = 0):
     keyboard.append([InlineKeyboardButton(text="🛑 Прекратить поиск", callback_data="go_home")])
 
     target_link = f"https://steamcommunity.com/search/users/?l=russian#text={quote(nickname)}"
-    text = f"🔍 Найдено по запросу **{nickname}** через [Steam Search]({target_link}) (Страница {page + 1} из {total_pages}):\n\nМожете отправить следующий ник:"
+    text = f"🔍 Найдено по запросу **{nickname}** через [Steam Search]({target_link}) (Страница {page + 1} из {total_pages}):\n\nНажмите на нужного игрока из списка ниже:"
     markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
     
     try:
@@ -489,6 +488,15 @@ async def search_page_callback(callback: CallbackQuery):
     page = int(callback.data.split("_")[2])
     user_id = callback.from_user.id
     await send_search_page(user_id, page=page)
+    await callback.answer()
+
+@router.callback_query(F.data == "back_to_search_list")
+async def back_to_search_list_callback(callback: CallbackQuery):
+    user_id = callback.from_user.id
+    if user_id in search_cache:
+        await send_search_page(user_id, page=0)
+    else:
+        await go_home(callback, None)
     await callback.answer()
 
 @router.callback_query(F.data.startswith("select_player_"))
@@ -515,10 +523,10 @@ async def show_player_profile(message_or_callback, steam_id: str, state: FSMCont
             players = data.get("response", {}).get("players", [])
             
             if not players:
-                err_text = "❌ Профиль игрока скрыт или не найден.\n\nОтправьте следующий ник:"
+                err_text = "❌ Профиль игрока скрыт или не найден.\n\nВернитесь к списку:"
                 if msg_id:
                     try:
-                        await bot.edit_message_text(err_text, chat_id=user_id, message_id=msg_id, reply_markup=stop_search_keyboard())
+                        await bot.edit_message_text(err_text, chat_id=user_id, message_id=msg_id, reply_markup=result_keyboard(steam_id))
                     except Exception:
                         pass
                 return
@@ -578,7 +586,7 @@ async def show_player_profile(message_or_callback, steam_id: str, state: FSMCont
             f"• [Профиль Steam]({profile_link})\n"
             f"• [RustStats.io]({ruststats_link})\n"
             f"• [RustBans]({rustbans_link})\n\n"
-            f"💡 *Можете отправить следующий ник для поиска.*"
+            f"💡 *Можете вернуться к списку результатов или отслеживать игрока.*"
         )
 
         is_tracked = user_id in active_trackers and steam_id in active_trackers[user_id]
@@ -687,7 +695,7 @@ async def main():
     dp.include_router(router)
     await bot.delete_webhook(drop_pending_updates=True)
     print("Бот успешно запущен и готов к работе!")
-    await dp.start_polling(bot)
+    await dp.start_polling(dp, bot=bot)
 
 if __name__ == "__main__":
     asyncio.run(main())
