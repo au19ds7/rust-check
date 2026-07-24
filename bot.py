@@ -6,10 +6,11 @@ import logging
 import re
 from urllib.parse import quote
 from bs4 import BeautifulSoup
+from playwright.async_api import async_playwright
 
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.filters import Command
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, FSInputFile
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
@@ -42,8 +43,8 @@ LANGS = {
         "btn_tracked": "👁 Мои отслеживания",
         "btn_zayats": "🐰 Заяц",
         "btn_about": "ℹ️ О боте / Язык",
-        "zayats_prompt": "🐰 **Режим Заяц**\n\nОтправьте мне **Steam ID 64** или **кастомный URL/ник (буквенный)** игрока, чтобы узнать его сервер через rust.destiny.ie:",
-        "zayats_not_found": "❌ Игрок не найден на rust.destiny.ie или профиль скрыт.",
+        "zayats_prompt": "🐰 **Режим Заяц**\n\nОтправьте мне **Steam ID 64** или **кастомный URL/ник (буквенный)** игрока, чтобы получить скриншот с rust.destiny.ie:",
+        "zayats_not_found": "❌ Не удалось сделать скриншот или игрок не найден на rust.destiny.ie.",
         "about_text": (
             "ℹ️ **О боте:**\n\n"
             "Многофункциональный помощник для игроков Rust.\n\n"
@@ -99,8 +100,8 @@ LANGS = {
         "btn_tracked": "👁 My Tracked Players",
         "btn_zayats": "🐰 Zayats",
         "btn_about": "ℹ️ About Bot / Language",
-        "zayats_prompt": "🐰 **Zayats Mode**\n\nSend me Steam ID 64 or custom URL:",
-        "zayats_not_found": "❌ Player not found on rust.destiny.ie.",
+        "zayats_prompt": "🐰 **Zayats Mode**\n\nSend me Steam ID 64:",
+        "zayats_not_found": "❌ Screenshot failed or player not found.",
         "about_text": "ℹ️ **About Bot:**",
         "lang_changed": "✅ Language successfully changed to English!",
         "rust_plus_menu_title": "⚡️ **Rust+ Menu**",
@@ -152,8 +153,8 @@ LANGS = {
         "btn_tracked": "👁 Відстеження",
         "btn_zayats": "🐰 Заєць",
         "btn_about": "ℹ️ Про бота / Мова",
-        "zayats_prompt": "🐰 **Режим Заєць**\n\nНадішліть Steam ID 64 або кастомний ID гравця:",
-        "zayats_not_found": "❌ Гравця не знайдено на rust.destiny.ie.",
+        "zayats_prompt": "🐰 **Режим Заєць**\n\nНадішліть Steam ID або нікнейм для отримання скріншота з rust.destiny.ie:",
+        "zayats_not_found": "❌ Не вдалося створити скріншот або гравця не знайдено.",
         "about_text": "ℹ️ **Про бота:**",
         "lang_changed": "✅ Мову змінено!",
         "rust_plus_menu_title": "⚡️ **Меню Rust+**",
@@ -297,6 +298,23 @@ async def zayats_menu_start(callback: CallbackQuery, state: FSMContext):
     await state.set_state(ZayatsState.waiting_for_steam_id)
     await callback.answer()
 
+async def take_search_screenshot(query_text: str, output_path: str) -> bool:
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True)
+        page = await browser.new_page(viewport={"width": 1280, "height": 800})
+        try:
+            search_url = f"https://rust.destiny.ie/ru/search?q={quote(query_text)}"
+            await page.goto(search_url, timeout=35000)
+            # Чекаємо декілька секунд, поки рендериться сторінка і завантажуються сервери
+            await page.wait_for_timeout(4000)
+            await page.screenshot(path=output_path, full_page=True)
+            await browser.close()
+            return True
+        except Exception as e:
+            logging.error(f"Помилка створення скріншота через Playwright: {e}")
+            await browser.close()
+            return False
+
 @router.message(ZayatsState.waiting_for_steam_id)
 async def process_zayats_input(message: Message, state: FSMContext):
     user_id = message.from_user.id
@@ -313,76 +331,42 @@ async def process_zayats_input(message: Message, state: FSMContext):
     elif "steamcommunity.com/profiles/" in user_input:
         user_input = user_input.rstrip("/").split("/")[-1]
 
-    steam_id = None
-    if user_input.isdigit() and len(user_input) == 17:
-        steam_id = user_input
-    else:
-        async with aiohttp.ClientSession() as session:
-            vanity_url = f"https://api.steampowered.com/ISteamUser/ResolveVanityURL/v0001/?key={STEAM_API_KEY}&vanityurl={user_input}"
-            async with session.get(vanity_url) as resp:
-                data = await resp.json()
-                if data.get("response", {}).get("success") == 1:
-                    steam_id = data.get("response", {}).get("steamid")
-
-    if not steam_id:
-        steam_id = user_input
-
-    server_found = None
-    
-    async with aiohttp.ClientSession() as session:
-        api_search_url = f"https://rust.destiny.ie/api/search?q={quote(steam_id)}"
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Accept": "application/json"
-        }
+    if msg_id:
         try:
-            async with session.get(api_search_url, headers=headers) as resp:
-                if resp.status == 200:
-                    try:
-                        data_json = await resp.json()
-                        if isinstance(data_json, list) and len(data_json) > 0:
-                            server_found = data_json[0].get("server") or data_json[0].get("currentServer")
-                        elif isinstance(data_json, dict):
-                            server_found = data_json.get("server") or data_json.get("current_server")
-                    except Exception:
-                        pass
-        except Exception as e:
-            logging.error(f"Ошибка API запроса: {e}")
+            await bot.edit_message_text("🔍 Роблю скріншот результатів з rust.destiny.ie...", chat_id=user_id, message_id=msg_id)
+        except Exception:
+            pass
 
-        if not server_found:
-            search_url = f"https://rust.destiny.ie/ru/search?q={quote(steam_id)}"
-            try:
-                async with session.get(search_url, headers=headers) as resp:
-                    if resp.status == 200:
-                        html_content = await resp.text()
-                        match_srv = re.search(r'ТЕКУЩИЙ СЕРВЕР["\s>]+([^<"]+)', html_content, re.IGNORECASE)
-                        if match_srv:
-                            server_found = match_srv.group(1).strip()
-            except Exception as e:
-                logging.error(f"Ошибка HTML парсинга: {e}")
-
-    if not server_found:
-        if msg_id:
-            try:
-                await bot.edit_message_text(t(user_id, "zayats_not_found"), chat_id=user_id, message_id=msg_id, reply_markup=back_keyboard(user_id))
-            except Exception:
-                pass
-        return
-
-    result_text = f"🐰 **Результат из rust.destiny.ie для `{user_input}`:**\n\n🟢 **Текущий сервер:** `{server_found}`"
+    screenshot_file = f"zayats_{user_id}.png"
+    success = await take_search_screenshot(user_input, screenshot_file)
 
     if msg_id:
         try:
-            await bot.edit_message_text(
-                result_text,
-                chat_id=user_id,
-                message_id=msg_id,
-                reply_markup=back_keyboard(user_id),
-                parse_mode="Markdown"
-            )
+            await bot.delete_message(chat_id=user_id, message_id=msg_id)
         except Exception:
             pass
-    
+
+    if success and os.path.exists(screenshot_file):
+        photo = FSInputFile(screenshot_file)
+        sent_msg = await bot.send_photo(
+            chat_id=user_id,
+            photo=photo,
+            caption=f"🐰 **Скріншот результатів для:** `{user_input}`",
+            reply_markup=back_keyboard(user_id),
+            parse_mode="Markdown"
+        )
+        last_search_message[user_id] = sent_msg.message_id
+        try:
+            os.remove(screenshot_file)
+        except Exception:
+            pass
+    else:
+        await bot.send_message(
+            chat_id=user_id,
+            text=t(user_id, "zayats_not_found"),
+            reply_markup=back_keyboard(user_id)
+        )
+
     await state.clear()
 
 async def fetch_server_details_by_name(server_name: str):
