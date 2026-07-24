@@ -23,7 +23,7 @@ router = Router()
 active_trackers = {}
 tracked_players_list = {}
 search_cache = {}
-last_search_message = {} # Словарь для хранения ID сообщения с результатами поиска для каждого юзера
+last_search_message = {}
 
 class SearchState(StatesGroup):
     waiting_for_steam_id = State()
@@ -72,8 +72,7 @@ def result_keyboard(steam_id, is_tracked=False):
 async def cmd_start(message: Message, state: FSMContext):
     await state.clear()
     user_id = message.from_user.id
-    if user_id in last_search_message:
-        last_search_message.pop(user_id, None)
+    last_search_message.pop(user_id, None)
 
     await message.answer(
         "Полный список команд: /help.\n\n"
@@ -187,7 +186,7 @@ async def start_search_id(callback: CallbackQuery, state: FSMContext):
 async def start_search_nick(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
     await callback.message.edit_text(
-        "Отправьте мне **ник или кастомный ID игрока** для поиска.\n\n"
+        "Отправьте мне **ник игрока** для поиска через официальную страницу поиска Steam (`/search/users/?l=russian`).\n\n"
         "Можете отправлять сколько угодно ников подряд, пока не нажмете кнопку ниже:",
         reply_markup=stop_search_keyboard(),
         parse_mode="Markdown"
@@ -201,7 +200,6 @@ async def process_steam_id_input(message: Message, state: FSMContext):
     user_id = message.from_user.id
     user_input = message.text.strip()
     
-    # Удаляем сообщение пользователя с введенным текстом, чтобы не засорять чат
     try:
         await message.delete()
     except Exception:
@@ -237,37 +235,21 @@ async def process_nickname_input(message: Message, state: FSMContext):
     user_id = message.from_user.id
     query = message.text.strip()
     
-    # Удаляем сообщение пользователя с введенным ником
     try:
         await message.delete()
     except Exception:
         pass
 
-    if "steamcommunity.com/id/" in query:
-        query = query.rstrip("/").split("/")[-1]
-    elif "steamcommunity.com/profiles/" in query:
-        query = query.rstrip("/").split("/")[-1]
-
     msg_id = last_search_message.get(user_id)
     
-    # Обновляем текст на "Ищу..." в существующем сообщении бота
     if msg_id:
         try:
-            await bot.edit_message_text("🔍 Ищу игроков...", chat_id=user_id, message_id=msg_id, reply_markup=stop_search_keyboard())
+            await bot.edit_message_text(f"🔍 Ищу '{query}' через https://steamcommunity.com/search/users/?l=russian ...", chat_id=user_id, message_id=msg_id, reply_markup=stop_search_keyboard())
         except Exception:
             pass
 
-    async with aiohttp.ClientSession() as session:
-        vanity_url = f"https://api.steampowered.com/ISteamUser/ResolveVanityURL/v0001/?key={STEAM_API_KEY}&vanityurl={query}"
-        async with session.get(vanity_url) as resp:
-            data = await resp.json()
-            response_block = data.get("response", {})
-            if response_block.get("success") == 1:
-                steam_id = response_block.get("steamid")
-                await show_player_profile(message, steam_id, state, edit_message=True)
-                return
-
-    search_url = f"https://steamcommunity.com/search/users/?text={quote(query)}"
+    # Формируем запрос строго на страницу поиска Steam с параметром русской локали
+    search_url = f"https://steamcommunity.com/search/users/?l=russian&text={quote(query)}"
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7"
@@ -320,10 +302,8 @@ async def process_nickname_input(message: Message, state: FSMContext):
 
     if not found_players:
         err_text = (
-            "❌ Игроки не найдены.\n\n"
-            "💡 **Совет:** У Steam стоит сильная защита от частых запросов парсинга по обычным никам. "
-            "Самый надежный способ найти игрока — использовать его **кастомный ID** (например, `numberonerust`) или прямой **Steam ID 64**.\n\n"
-            "Можете отправить следующий ник или ID:"
+            f"❌ По запросу **{query}** на `https://steamcommunity.com/search/users/?l=russian` ничего не найдено.\n\n"
+            "💡 Попробуйте ввести другой ник или точный кастомный ID:"
         )
         if msg_id:
             try:
@@ -367,11 +347,11 @@ async def send_search_page(user_id: int, page: int = 0):
 
     keyboard.append([InlineKeyboardButton(text="🛑 Прекратить поиск", callback_data="go_home")])
 
-    text = f"🔍 Найдено по запросу **{nickname}** (Страница {page + 1} из {total_pages}):\n\nМожете отправить следующий ник или ID:"
+    text = f"🔍 Найдено по запросу **{nickname}** через [Steam Search](https://steamcommunity.com/search/users/?l=russian) (Страница {page + 1} из {total_pages}):\n\nМожете отправить следующий ник:"
     markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
     
     try:
-        await bot.edit_message_text(text, chat_id=user_id, message_id=msg_id, reply_markup=markup, parse_mode="Markdown")
+        await bot.edit_message_text(text, chat_id=user_id, message_id=msg_id, reply_markup=markup, parse_mode="Markdown", disable_web_page_preview=True)
     except Exception:
         pass
 
@@ -406,7 +386,7 @@ async def show_player_profile(message_or_callback, steam_id: str, state: FSMCont
             players = data.get("response", {}).get("players", [])
             
             if not players:
-                err_text = "❌ Профиль игрока скрыт или не найден.\n\nОтправьте следующий ник или ID:"
+                err_text = "❌ Профиль игрока скрыт или не найден.\n\nОтправьте следующий ник:"
                 if msg_id:
                     try:
                         await bot.edit_message_text(err_text, chat_id=user_id, message_id=msg_id, reply_markup=stop_search_keyboard())
@@ -469,7 +449,7 @@ async def show_player_profile(message_or_callback, steam_id: str, state: FSMCont
             f"• [Профиль Steam]({profile_link})\n"
             f"• [RustStats.io]({ruststats_link})\n"
             f"• [RustBans]({rustbans_link})\n\n"
-            f"💡 *Можете отправить следующий ник или ID для поиска.*"
+            f"💡 *Можете отправить следующий ник для поиска.*"
         )
 
         is_tracked = user_id in active_trackers and steam_id in active_trackers[user_id]
