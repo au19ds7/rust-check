@@ -1,0 +1,13 @@
+[phases.setup]
+nixPkgs = [
+    "python311",
+    "libjpeg",
+    "zlib",
+    "freetype",
+    "lcms2",
+    "openjpeg",
+    "tiff",
+    "tk",
+    "harfbuzz",
+    "fribidi"
+]
