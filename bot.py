@@ -45,8 +45,8 @@ LANGS = {
         "btn_tracked": "👁 Мои отслеживания",
         "btn_zayats": "🐰 Заяц",
         "btn_about": "ℹ️ О боте / Язык",
-        "zayats_prompt": "🐰 **Режим Заяц**\n\nОтправьте мне **Steam ID 64** или **кастомный URL/ник (буквенный)** игрока, чтобы получить скриншот с ruststats.io:",
-        "zayats_not_found": "❌ Не удалось сделать скриншот или игрок не найден на ruststats.io.",
+        "zayats_prompt": "🐰 **Режим Заяц**\n\nОтправьте мне **Steam ID 64** или **кастомный URL/ник (буквенный)** игрока, чтобы получить ссылку на ruststats.io:",
+        "zayats_not_found": "❌ Не удалось найти игрока на ruststats.io.",
         "about_text": (
             "ℹ️ **О боте:**\n\n"
             "Многофункциональный помощник для игроков Rust.\n\n"
@@ -105,7 +105,7 @@ LANGS = {
         "btn_zayats": "🐰 Zayats",
         "btn_about": "ℹ️ About Bot / Language",
         "zayats_prompt": "🐰 **Zayats Mode**\n\nSend me Steam ID 64:",
-        "zayats_not_found": "❌ Screenshot failed or player not found.",
+        "zayats_not_found": "❌ Player not found.",
         "about_text": "ℹ️ **About Bot / Language Selection:**",
         "lang_changed": "✅ Language successfully changed to English!",
         "rust_plus_menu_title": "⚡️ **Rust+ Menu**[cite: 1]",
@@ -160,7 +160,7 @@ LANGS = {
         "btn_zayats": "🐰 Заєць",
         "btn_about": "ℹ️ Про бота / Мова",
         "zayats_prompt": "🐰 **Режим Заєць**\n\nНадішліть Steam ID або нікнейм:",
-        "zayats_not_found": "❌ Не вдалося створити скріншот.",
+        "zayats_not_found": "❌ Не вдалося знайти гравця.",
         "about_text": "ℹ️ **Про бота / Вибір мови:**",
         "lang_changed": "✅ Мову змінено!",
         "rust_plus_menu_title": "⚡️ **Меню Rust+**[cite: 1]",
@@ -390,7 +390,6 @@ async def resolve_vanity_url(query: str) -> str:
     return query
 
 async def fetch_rust_playtime(steam_id: str) -> tuple:
-    """Получает часы в Rust через Steam Web API (App ID: 252490)"""
     url = f"https://api.steampowered.com/IPlayerService/GetOwnedGames/v0001/?key={STEAM_API_KEY}&steamid={steam_id}&include_appinfo=true&format=json"
     total_hours = 0.0
     two_weeks_hours = 0.0
@@ -434,10 +433,8 @@ async def show_player_profile_by_id(user_id: int, steam_id: str, msg_id: int, st
             else:
                 status = t(user_id, "offline")
 
-            # Получаем реальные часы в Rust
             total_hours, two_weeks_hours = await fetch_rust_playtime(steam_id)
 
-            # Формируем ссылки на сторонние сайты для удобства
             bm_link = f"https://www.battlemetrics.com/rcon/players?filter%5Bsearch%5D={steam_id}"
             ruststats_link = f"https://ruststats.io/profile/{steam_id}"
 
@@ -599,7 +596,7 @@ async def check_bans_handler(callback: CallbackQuery):
                 
     await callback.answer(msg, show_alert=True)
 
-# --- ОТСЛЕЖИВАНИЕ ИГРОКОВ (ТРЕКЕР + ФОНОВАЯ ЗАДАЧА) ---
+# --- ОТСЛЕЖИВАНИЕ ИГРОКОВ ---
 @router.callback_query(F.data.startswith("start_track_"))
 async def start_track_player(callback: CallbackQuery):
     user_id = callback.from_user.id
@@ -910,7 +907,7 @@ async def process_raid_target(message: Message, state: FSMContext):
     await message.answer(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard), parse_mode="Markdown")
     await state.clear()
 
-# --- РЕЖИМ ЗАЯЦ (УДАЛЕН ЗА НАДОБНОСТЬЮ ИЛИ ЗАМЕНЕН, НО ОСТАВЛЯЕМ СТРУКТУРУ) ---
+# --- РЕЖИМ ЗАЯЦ ---
 @router.callback_query(F.data == "zayats_menu_start")
 async def zayats_menu_start(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
@@ -953,7 +950,7 @@ async def main():
     dp.include_router(router)
     await bot.delete_webhook(drop_pending_updates=True)
     asyncio.create_task(background_player_monitor())
-    await dp.start_polling(dp) # Отрегулировано под стандартный вызов dp.start_polling(bot) в оригинале
+    await dp.start_polling(bot)
 
 if __name__ == "__main__":
     asyncio.run(main())
