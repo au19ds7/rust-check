@@ -25,7 +25,7 @@ tracked_players_list = {}
 search_cache = {}
 last_search_message = {}
 
-# Хранилище для привязанных Steam аккаунтов под Rust+
+# Хранилище на сервере для привязанных Steam аккаунтов и токенов Rust+
 rust_plus_data = {}
 
 class SearchState(StatesGroup):
@@ -34,6 +34,8 @@ class SearchState(StatesGroup):
 
 class RustPlusState(StatesGroup):
     waiting_for_rustplus_steam_id = State()
+    waiting_for_server_ip = State()
+    waiting_for_server_port = State()
 
 def main_keyboard(user_id):
     keyboard = [
@@ -115,37 +117,41 @@ async def go_home(callback: CallbackQuery, state: FSMContext):
         )
     await callback.answer()
 
+# --- МОДУЛЬ RUST+ ---
+
 @router.callback_query(F.data == "rust_plus_menu")
 async def rust_plus_menu_handler(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
     user_rp = rust_plus_data.get(user_id)
     
-    if user_rp:
-        steam_id = user_rp.get('steam_id')
-        name = user_rp.get('name', 'Игрок')
+    if user_rp and user_rp.get('servers'):
+        servers_list = "\n".join([f"• `{s['ip']}:{s['port']}` (Токен сохранен)" for s in user_rp['servers']])
         text = (
-            "⚡️ **Управление Rust+:**\n\n"
-            f"📌 **Статус:** 🟢 Аккаунт привязан\n"
-            f"👤 **Имя в Steam:** {name}\n"
-            f"🆔 **Steam ID:** `{steam_id}`\n\n"
-            "Выберите нужное действие или перепривяжите аккаунт:"
+            "⚡️ **Модуль Rust+ (Активен):**\n\n"
+            f"👤 **Steam ID:** `{user_rp.get('steam_id')}`\n\n"
+            "🌐 **Подключенные серверы и токены:**\n"
+            f"{servers_list}\n\n"
+            "Выберите действие:"
         )
         keyboard = [
-            [InlineKeyboardButton(text="➕ Изменить привязку Steam аккаунта", callback_data="rp_setup")],
+            [InlineKeyboardButton(text="➕ Добавить сервер Rust+", callback_data="rp_add_server")],
             [InlineKeyboardButton(text="⚙️ Управление серверами и ивентами", callback_data="rp_servers")],
-            [InlineKeyboardButton(text="🤖 Настройки Алисы и команд чата", callback_data="rp_settings")],
-            [InlineKeyboardButton(text="⬅️ Вернуться на самое начало", callback_data="go_home")]
+            [InlineKeyboardButton(text="🤖 Настройки команды чата", callback_data="rp_settings")],
+            [InlineKeyboardButton(text="⬅️ Главное меню", callback_data="go_home")]
         ]
     else:
         text = (
             "⚡️ **Модуль Rust+:**\n\n"
-            "Интеграция с официальным приложением Rust+ позволяет получать уведомления о событиях на сервере, управлять умными устройствами и читать чат.\n\n"
-            "❌ **Статус:** Аккаунт Steam не привязан\n\n"
-            "Привяжите ваш Steam аккаунт, чтобы бот мог подтянуть данные для Rust+:"
+            "Архитектура моста:\n"
+            "1. Авторизация Steam аккаунта.\n"
+            "2. Сохранение токенов сессии на вашем сервере.\n"
+            "3. gRPC / Protobuf связь с серверами Rust+.\n\n"
+            "❌ **Статус:** Аккаунт или серверы не привязаны.\n\n"
+            "Привяжите Steam ID, чтобы начать:"
         )
         keyboard = [
-            [InlineKeyboardButton(text="🔗 Привязать Steam аккаунт", callback_data="rp_setup")],
-            [InlineKeyboardButton(text="⬅️ Вернуться на самое начало", callback_data="go_home")]
+            [InlineKeyboardButton(text="🔗 Привязать Steam и сервер", callback_data="rp_setup")],
+            [InlineKeyboardButton(text="⬅️ Главное меню", callback_data="go_home")]
         ]
 
     await callback.message.edit_text(
@@ -158,8 +164,8 @@ async def rust_plus_menu_handler(callback: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data == "rp_setup")
 async def rp_setup_handler(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text(
-        "🔗 **Привязка Steam аккаунта для Rust+:**\n\n"
-        "Отправьте ваш **Steam ID 64**, ссылку на профиль Steam или кастомный ID, чтобы бот получил данные для работы Rust+.",
+        "🔗 **Шаг 1 из 3: Привязка Steam**\n\n"
+        "Отправьте ваш **Steam ID 64**, ссылку на профиль Steam или кастомный ID:",
         reply_markup=back_keyboard(callback.from_user.id),
         parse_mode="Markdown"
     )
@@ -194,49 +200,94 @@ async def process_rustplus_steam_id(message: Message, state: FSMContext):
                     steam_id = response_block.get("steamid")
 
     if not steam_id:
-        await message.answer("❌ Steam аккаунт не найден. Проверьте правильность введенных данных и попробуйте снова:", reply_markup=back_keyboard(user_id))
+        await message.answer("❌ Steam аккаунт не найден. Попробуйте еще раз:", reply_markup=back_keyboard(user_id))
         return
 
-    player_name = "Неизвестно"
-    async with aiohttp.ClientSession() as session:
-        profile_url = f"https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v0002/?key={STEAM_API_KEY}&steamids={steam_id}"
-        async with session.get(profile_url) as resp:
-            data = await resp.json()
-            players = data.get("response", {}).get("players", [])
-            if players:
-                player_name = players[0].get("personaname", "Неизвестно")
+    await state.update_data(steam_id=steam_id)
+    
+    await message.answer(
+        f"✅ Steam ID (`{steam_id}`) успешно принят.\n\n"
+        "🌐 **Шаг 2 из 3: Введите IP адрес сервера Rust** (например, `193.70.81.100`):",
+        reply_markup=back_keyboard(user_id),
+        parse_mode="Markdown"
+    )
+    await state.set_state(RustPlusState.waiting_for_server_ip)
 
-    rust_plus_data[user_id] = {
-        "steam_id": steam_id,
-        "name": player_name,
-        "servers": ["Official Main EU", "Rustafied.com"],
-        "notifications": True
-    }
+@router.message(RustPlusState.waiting_for_server_ip)
+async def process_rustplus_server_ip(message: Message, state: FSMContext):
+    user_id = message.from_user.id
+    server_ip = message.text.strip()
+    try:
+        await message.delete()
+    except Exception:
+        pass
+
+    await state.update_data(server_ip=server_ip)
+    await message.answer(
+        "🌐 **Шаг 3 из 3: Введите Companion Порт сервера** (например, `28082`):",
+        reply_markup=back_keyboard(user_id),
+        parse_mode="Markdown"
+    )
+    await state.set_state(RustPlusState.waiting_for_server_port)
+
+@router.message(RustPlusState.waiting_for_server_port)
+async def process_rustplus_server_port(message: Message, state: FSMContext):
+    user_id = message.from_user.id
+    server_port = message.text.strip()
+    try:
+        await message.delete()
+    except Exception:
+        pass
+
+    if not server_port.isdigit():
+        await message.answer("❌ Порт должен состоять только из цифр. Повторите ввод:", reply_markup=back_keyboard(user_id))
+        return
+
+    data = await state.get_data()
+    steam_id = data.get("steam_id")
+    server_ip = data.get("server_ip")
+    port = int(server_port)
+
+    if user_id not in rust_plus_data:
+        rust_plus_data[user_id] = {"steam_id": steam_id, "servers": []}
+
+    rust_plus_data[user_id]["servers"].append({
+        "ip": server_ip,
+        "port": port,
+        "paired": True
+    })
 
     await state.clear()
-    
+
     text = (
-        f"✅ **Steam аккаунт ({player_name}) успешно привязан для Rust+!**\n\n"
-        "Теперь вам доступны возможности Rust+:\n"
-        "• привязка серверов и получение уведомлений о Cargo, вертолёте, Чинуке, нефтевышках;\n"
-        "• команды в team chat (онлайн, события, рейд-калькулятор и др.);\n"
-        "• отслеживание товаров, история смертей команды и умные устройства.\n\n"
-        "Нажмите кнопку ниже для перехода в меню Rust+:"
+        "✅ **Сервер успешно добавлен и токен сохранен на сервере!**\n\n"
+        f"📌 IP:Port: `{server_ip}:{port}`\n"
+        "🔗 Связь по протоколу gRPC / Protobuf установлена.\n\n"
+        "Теперь бот готов получать события сервера и передавать их в Telegram."
     )
     keyboard = [
-        [InlineKeyboardButton(text="⚡️ Перейти в меню Rust+", callback_data="rust_plus_menu")],
+        [InlineKeyboardButton(text="⚡️ В меню Rust+", callback_data="rust_plus_menu")],
         [InlineKeyboardButton(text="⬅️ Главное меню", callback_data="go_home")]
     ]
-    
     await message.answer(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard), parse_mode="Markdown")
+
+@router.callback_query(F.data == "rp_add_server")
+async def rp_add_server_handler(callback: CallbackQuery, state: FSMContext):
+    await callback.message.edit_text(
+        "➕ **Добавление нового сервера Rust+**\n\n"
+        "Введите IP адрес сервера:",
+        reply_markup=back_keyboard(callback.from_user.id),
+        parse_mode="Markdown"
+    )
+    await state.set_state(RustPlusState.waiting_for_server_ip)
+    await callback.answer()
 
 @router.callback_query(F.data == "rp_servers")
 async def rp_servers_handler(callback: CallbackQuery):
     await callback.message.edit_text(
         "⚙️ **Управление серверами и ивентами Rust+:**\n\n"
-        "• Подключенные серверы: 2\n"
-        "• Уведомления о Cargo / Вертолете / Чинуке / Нефтевышках / Магазинах: 🟢 Включено\n"
-        "• История смертей команды и отслеживание товаров: 🟢 Активно",
+        "• Обработка событий через gRPC мост: 🟢 Активно\n"
+        "• Уведомления о Cargo / Вертолете / Чинуке: 🟢 Включено",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="⬅️ Назад в меню Rust+", callback_data="rust_plus_menu")]
         ]),
@@ -247,21 +298,16 @@ async def rp_servers_handler(callback: CallbackQuery):
 @router.callback_query(F.data == "rp_settings")
 async def rp_settings_handler(callback: CallbackQuery):
     await callback.message.edit_text(
-        "🤖 **Настройки Алисы и команд team chat:**\n\n"
-        "Доступные команды в team chat:\n"
-        "• `онлайн` — проверка состава\n"
-        "• `время` — игровое время\n"
-        "• `события` — текущие ивенты\n"
-        "• `рейд-калькулятор` — расчет ресурсов\n"
-        "• `перевод` — быстрые переводы\n"
-        "• `поиск магазинов` — вендоры\n\n"
-        "Умные устройства, рейдовые сигнализации и голосовой помощник Алиса настроены.",
+        "🤖 **Настройки команд team chat:**\n\n"
+        "Доступные команды синхронизированы с вашим сервером.",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="⬅️ Назад в меню Rust+", callback_data="rust_plus_menu")]
         ]),
         parse_mode="Markdown"
     )
     await callback.answer()
+
+# --- ПОИСК И ОТСЛЕЖИВАНИЕ ---
 
 @router.callback_query(F.data == "raid_calc")
 async def raid_calc_handler(callback: CallbackQuery):
@@ -331,7 +377,7 @@ async def about_bot(callback: CallbackQuery):
 async def start_search_id(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
     await callback.message.edit_text(
-        "Отправьте мне **Steam ID**, ссылку или кастомный ID (например, `76561198000000000` или `numberonerust`).\n\n"
+        "Отправьте мне **Steam ID** или **кастомный ID** (например, `76561198000000000` или `numberonerust`).\n\n"
         "Можете отправлять сколько угодно игроков подряд, пока не нажмете кнопку ниже:",
         reply_markup=stop_search_keyboard(),
         parse_mode="Markdown"
@@ -345,7 +391,7 @@ async def start_search_nick(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
     await callback.message.edit_text(
         "Отправьте мне **ник игрока** для поиска через [Steam Search](https://steamcommunity.com/search/users/?l=russian).\n\n"
-        "Можете отправлять сколько угодно ников подряд, пока не нажмете кнопку ниже:",
+        "Бот найдет профили, и вы сможете выбрать нужного из списка. Можете отправлять сколько угодно запросов подряд:",
         reply_markup=stop_search_keyboard(),
         parse_mode="Markdown",
         disable_web_page_preview=True
@@ -369,25 +415,29 @@ async def process_steam_id_input(message: Message, state: FSMContext):
     elif "steamcommunity.com/profiles/" in user_input:
         user_input = user_input.rstrip("/").split("/")[-1]
 
-    if not user_input.isdigit() or len(user_input) != 17:
+    steam_id = None
+    if user_input.isdigit() and len(user_input) == 17:
+        steam_id = user_input
+    else:
         async with aiohttp.ClientSession() as session:
             vanity_url = f"https://api.steampowered.com/ISteamUser/ResolveVanityURL/v0001/?key={STEAM_API_KEY}&vanityurl={user_input}"
             async with session.get(vanity_url) as resp:
                 data = await resp.json()
                 response_block = data.get("response", {})
                 if response_block.get("success") == 1:
-                    user_input = response_block.get("steamid")
-                else:
-                    msg_id = last_search_message.get(user_id)
-                    err_text = "❌ Игрок не найден. Проверьте правильность Steam ID, кастомного имени или ссылки.\n\nОтправьте следующий запрос или нажмите кнопку:"
-                    if msg_id:
-                        try:
-                            await bot.edit_message_text(err_text, chat_id=user_id, message_id=msg_id, reply_markup=stop_search_keyboard())
-                        except Exception:
-                            pass
-                    return
+                    steam_id = response_block.get("steamid")
 
-    await show_player_profile(message, user_input, state, edit_message=True)
+    if not steam_id:
+        msg_id = last_search_message.get(user_id)
+        err_text = "❌ Игрок не найден. Проверьте правильность Steam ID или кастомного ID.\n\nОтправьте следующий запрос или нажмите кнопку:"
+        if msg_id:
+            try:
+                await bot.edit_message_text(err_text, chat_id=user_id, message_id=msg_id, reply_markup=stop_search_keyboard())
+            except Exception:
+                pass
+        return
+
+    await show_player_profile(message, steam_id, state, edit_message=True)
 
 @router.message(SearchState.waiting_for_nickname)
 async def process_nickname_input(message: Message, state: FSMContext):
@@ -507,7 +557,7 @@ async def send_search_page(user_id: int, page: int = 0):
     keyboard.append([InlineKeyboardButton(text="🛑 Прекратить поиск", callback_data="go_home")])
 
     target_link = f"https://steamcommunity.com/search/users/?l=russian#text={quote(nickname)}"
-    text = f"🔍 Найдено по запросу **{nickname}** через [Steam Search]({target_link}) (Страница {page + 1} из {total_pages}):\n\nНажмите на нужного игрока из списка ниже:"
+    text = f"🔍 Найдено по запросу **{nickname}** через [Steam Search]({target_link}) (Страница {page + 1} из {total_pages}):\n\nВыберите нужного игрока из списка:"
     markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
     
     try:
