@@ -620,13 +620,10 @@ async def show_player_profile(message_or_callback, steam_id: str, state: FSMCont
                     rust_hours = round(g.get("playtime_forever", 0) / 60, 1)
                     rust_hours_2weeks = round(g.get("playtime_2weeks", 0) / 60, 1)
 
-        # Демонстрационный топ-3 серверов (в Steam API нет прямого списка серверов, поэтому выводится структурированная сводка активности ТОЛЬКО по Rust)
+        # Поскольку стандартный Steam API не предоставляет названий серверов, выводим достоверную информацию без выдумывания
         servers_activity_text = (
-            f"📊 **Активность в Rust за неделю:** {rust_hours_2weeks} ч.\n"
-            f"🌐 **Топ-3 сервера (Rust):**\n"
-            f"1. Official US East - 12.5 ч.\n"
-            f"2. Maxis Rust 2x - 8.1 ч.\n"
-            f"3. ⚰️ BATTLEFIELD 1000X - 4.3 ч."
+            f"📊 Активность в Rust за неделю: {rust_hours_2weeks} ч.\n"
+            f"🌐 Нет информации о последней активности на серверах"
         )
 
         response_text = (
