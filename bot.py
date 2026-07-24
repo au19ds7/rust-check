@@ -773,4 +773,192 @@ async def rp_view_server_details(callback: CallbackQuery):
     history_snippet = info['history'][:600]
     server_title = info['server_name']
     
-    code_block = "```text\n" + history_snippet + "\n
+    b = chr(96) * 3
+    code_block = f"{b}text\n{history_snippet}\n{b}"
+    
+    text = (
+        f"🟢 **Сервер:** `{server_title}`\n\n"
+        f"📋 **Последняя активность / История:**\n"
+        f"{code_block}"
+    )
+    keyboard = [[InlineKeyboardButton(text=t(user_id, "back_btn"), callback_data="rust_plus_menu")]]
+    await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard), parse_mode="Markdown")
+
+@router.callback_query(F.data.startswith("rp_map_srv_"))
+async def rp_view_server_map(callback: CallbackQuery):
+    user_id = callback.from_user.id
+    srv_name = callback.data.replace("rp_map_srv_", "")
+    
+    keyboard = [[InlineKeyboardButton(text=t(user_id, "back_btn"), callback_data="rust_plus_menu")]]
+    await callback.message.edit_text(f"🗺 **Карта сервера `{srv_name}`:**\n\n(Интеграция с генератором карт загружается)", reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard), parse_mode="Markdown")
+    await callback.answer()
+
+async def fetch_server_details_by_name(server_name: str):
+    async with aiohttp.ClientSession() as session:
+        bm_history_text = "History not found."
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        }
+        try:
+            bm_search_url = f"https://www.battlemetrics.com/servers/rust?q={quote(server_name)}"
+            async with session.get(bm_search_url, headers=headers) as resp:
+                if resp.status == 200:
+                    bm_html = await resp.text()
+                    server_link_match = re.search(r'href="(/servers/rust/\d+-[^"]+)"', bm_html)
+                    if server_link_match:
+                        server_profile_url = f"https://www.battlemetrics.com{server_link_match.group(1)}"
+                        async with session.get(server_profile_url, headers=headers) as profile_resp:
+                            if profile_resp.status == 200:
+                                profile_html = await profile_resp.text()
+                                history_rows = re.findall(r'<tr[^>]*>(.*?)<\/tr>', profile_html, re.DOTALL)
+                                if history_rows:
+                                    extracted = []
+                                    for row in history_rows[:15]:
+                                        clean_row = re.sub(r'<[^>]+>', ' ', row).strip()
+                                        clean_row = re.sub(r'\s+', ' ', clean_row)
+                                        if clean_row:
+                                            extracted.append(clean_row)
+                                    if extracted:
+                                        bm_history_text = "\n".join(extracted)
+        except Exception as e:
+            logging.error(f"BattleMetrics request error: {e}")
+
+        return {
+            "server_name": server_name,
+            "history": bm_history_text
+        }
+
+# --- КАЛЬКУЛЯТОР РЕЙДА ---
+@router.callback_query(F.data == "raid_calc_start")
+async def raid_calc_start(callback: CallbackQuery, state: FSMContext):
+    user_id = callback.from_user.id
+    await callback.message.edit_text(
+        t(user_id, "raid_title"),
+        reply_markup=stop_search_keyboard(user_id),
+        parse_mode="Markdown"
+    )
+    await state.set_state(RaidCalculatorState.waiting_for_target)
+    await callback.answer()
+
+@router.message(RaidCalculatorState.waiting_for_target)
+async def process_raid_target(message: Message, state: FSMContext):
+    user_id = message.from_user.id
+    target = message.text.strip()
+    try:
+        await message.delete()
+    except Exception:
+        pass
+        
+    text = t(user_id, "raid_result", target=target)
+    keyboard = [
+        [InlineKeyboardButton(text=t(user_id, "btn_calc_more"), callback_data="raid_calc_start")],
+        [InlineKeyboardButton(text=t(user_id, "back_btn"), callback_data="go_home")]
+    ]
+    
+    await message.answer(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard), parse_mode="Markdown")
+    await state.clear()
+
+# --- РЕЖИМ ЗАЯЦ (СКРИНШОТ С RUST.DESTINY.IE) ---
+@router.callback_query(F.data == "zayats_menu_start")
+async def zayats_menu_start(callback: CallbackQuery, state: FSMContext):
+    user_id = callback.from_user.id
+    await callback.message.edit_text(
+        t(user_id, "zayats_prompt"),
+        reply_markup=stop_search_keyboard(user_id),
+        parse_mode="Markdown"
+    )
+    last_search_message[user_id] = callback.message.message_id
+    await state.set_state(ZayatsState.waiting_for_steam_id)
+    await callback.answer()
+
+async def take_search_screenshot(query_text: str, output_path: str) -> bool:
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(
+            headless=False,
+            args=[
+                "--disable-blink-features=AutomationControlled",
+                "--no-sandbox",
+                "--disable-setuid-sandbox",
+            ]
+        )
+        context = await browser.new_context(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+            viewport={"width": 1280, "height": 800},
+            locale="ru-RU"
+        )
+        page = await context.new_page()
+        try:
+            search_url = f"https://rust.destiny.ie/ru/search?q={quote(query_text)}"
+            await page.goto(search_url, timeout=45000, wait_until="domcontentloaded")
+            await page.wait_for_timeout(6000)
+            await page.screenshot(path=output_path, full_page=True)
+            await browser.close()
+            return True
+        except Exception as e:
+            logging.error(f"Playwright screenshot error: {e}")
+            await browser.close()
+            return False
+
+@router.message(ZayatsState.waiting_for_steam_id)
+async def process_zayats_input(message: Message, state: FSMContext):
+    user_id = message.from_user.id
+    user_input = message.text.strip()
+    try:
+        await message.delete()
+    except Exception:
+        pass
+
+    msg_id = last_search_message.get(user_id)
+
+    if "steamcommunity.com/id/" in user_input:
+        user_input = user_input.rstrip("/").split("/")[-1]
+    elif "steamcommunity.com/profiles/" in user_input:
+        user_input = user_input.rstrip("/").split("/")[-1]
+
+    if msg_id:
+        try:
+            await bot.edit_message_text("🔍 Создаю скриншот с rust.destiny.ie...", chat_id=user_id, message_id=msg_id)
+        except Exception:
+            pass
+
+    screenshot_file = f"zayats_{user_id}.png"
+    success = await take_search_screenshot(user_input, screenshot_file)
+
+    if msg_id:
+        try:
+            await bot.delete_message(chat_id=user_id, message_id=msg_id)
+        except Exception:
+            pass
+
+    if success and os.path.exists(screenshot_file):
+        photo = FSInputFile(screenshot_file)
+        sent_msg = await bot.send_photo(
+            chat_id=user_id,
+            photo=photo,
+            caption=f"🐰 **Результат поиска для:** `{user_input}`",
+            reply_markup=back_keyboard(user_id),
+            parse_mode="Markdown"
+        )
+        last_search_message[user_id] = sent_msg.message_id
+        try:
+            os.remove(screenshot_file)
+        except Exception:
+            pass
+    else:
+        await bot.send_message(
+            chat_id=user_id,
+            text=t(user_id, "zayats_not_found"),
+            reply_markup=back_keyboard(user_id)
+        )
+
+    await state.clear()
+
+# --- ЗАПУСК БОТА ---
+async def main():
+    dp.include_router(router)
+    await bot.delete_webhook(drop_pending_updates=True)
+    asyncio.create_task(background_player_monitor())
+    await dp.start_polling(bot)
+
+if __name__ == "__main__":
+    asyncio.run(main())
