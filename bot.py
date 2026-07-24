@@ -118,7 +118,7 @@ async def show_tracked_list(callback: CallbackQuery):
                     data = await resp.json()
                     pl_list = data.get("response", {}).get("players", [])
                     if pl_list:
-                        p = pl_list[0]
+                        p = pl_list
                         name = p.get("personaname", base_name)
                         gameid = p.get("gameid")
                         game_ext_info = p.get("gameextrainfo", "")
@@ -179,10 +179,19 @@ async def process_steam_id_input(message: Message, state: FSMContext):
     elif "steamcommunity.com/profiles/" in user_input:
         user_input = user_input.rstrip("/").split("/")[-1]
 
+    # Проверяем, если это кастомная ссылка (строка), пробуем превратить в Steam ID через API
     if not user_input.isdigit() or len(user_input) != 17:
-        await message.answer("❌ Неверный формат Steam ID. ID должен состоять из 17 цифр.", reply_markup=back_keyboard(message.from_user.id))
-        await state.clear()
-        return
+        async with aiohttp.ClientSession() as session:
+            vanity_url = f"https://api.steampowered.com/ISteamUser/ResolveVanityURL/v0001/?key={STEAM_API_KEY}&vanityurl={user_input}"
+            async with session.get(vanity_url) as resp:
+                data = await resp.json()
+                response_block = data.get("response", {})
+                if response_block.get("success") == 1:
+                    user_input = response_block.get("steamid")
+                else:
+                    await message.answer("❌ Игрок не найден. Проверьте правильность Steam ID или ссылки.", reply_markup=back_keyboard(message.from_user.id))
+                    await state.clear()
+                    return
 
     await show_player_profile(message, user_input, state)
 
@@ -192,14 +201,22 @@ async def process_nickname_input(message: Message, state: FSMContext):
     msg = await message.answer("🔍 Ищу игроков по нику...")
 
     search_url = f"https://steamcommunity.com/search/render/?text={nickname}&category=users&json=1"
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
 
     async with aiohttp.ClientSession() as session:
-        async with session.get(search_url) as resp:
+        async with session.get(search_url, headers=headers) as resp:
             if resp.status != 200:
-                await msg.edit_text("❌ Ошибка при поиске игроков.", reply_markup=back_keyboard(message.from_user.id))
+                await msg.edit_text("❌ Ошибка при обращении к серверам Steam.", reply_markup=back_keyboard(message.from_user.id))
                 await state.clear()
                 return
-            data = await resp.json()
+            
+            try:
+                data = await resp.json()
+            except Exception:
+                await msg.edit_text("❌ Не удалось обработать ответ от Steam.", reply_markup=back_keyboard(message.from_user.id))
+                await state.clear()
+                return
+
             results = data if isinstance(data, list) else data.get("results", [])
 
             if not results:
@@ -217,8 +234,14 @@ async def process_nickname_input(message: Message, state: FSMContext):
             for item in results[:10]:
                 s_id = item.get("steamid")
                 name = item.get("name")
-                keyboard.append([InlineKeyboardButton(text=name, callback_data=f"select_player_{s_id}")])
+                if s_id and name:
+                    keyboard.append([InlineKeyboardButton(text=name, callback_data=f"select_player_{s_id}")])
             
+            if not keyboard:
+                await msg.edit_text("❌ Не удалось найти подходящих профилей.", reply_markup=back_keyboard(message.from_user.id))
+                await state.clear()
+                return
+
             keyboard.append([InlineKeyboardButton(text="⬅️ Вернуться на самое начало", callback_data="go_home")])
 
             await msg.edit_text(
@@ -239,7 +262,10 @@ async def show_player_profile(message: Message, steam_id: str, state: FSMContext
         msg = await message.answer("🔍 Загружаю информацию об игроке...")
     else:
         msg = message
-        await msg.edit_text("🔍 Загружаю информацию об игроке...")
+        try:
+            await msg.edit_text("🔍 Загружаю информацию об игроке...")
+        except Exception:
+            pass
 
     async with aiohttp.ClientSession() as session:
         profile_url = f"https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v0002/?key={STEAM_API_KEY}&steamids={steam_id}"
@@ -248,7 +274,8 @@ async def show_player_profile(message: Message, steam_id: str, state: FSMContext
             players = data.get("response", {}).get("players", [])
             
             if not players:
-                await msg.edit_text("❌ Профиль игрока скрыт или не найден.", reply_markup=back_keyboard(message.chat.id))
+                chat_id = message.chat.id if hasattr(message, "chat") else message.message.chat.id
+                await msg.edit_text("❌ Профиль игрока скрыт или не найден.", reply_markup=back_keyboard(chat_id))
                 await state.clear()
                 return
             
@@ -307,7 +334,7 @@ async def show_player_profile(message: Message, steam_id: str, state: FSMContext
             f"• [RustStats.io]({ruststats_link})"
         )
 
-        user_id = message.chat.id
+        user_id = message.chat.id if hasattr(message, "chat") else message.message.chat.id
         is_tracked = user_id in active_trackers and steam_id in active_trackers[user_id]
 
         if edit_message:
