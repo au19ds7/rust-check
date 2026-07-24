@@ -1,4 +1,7 @@
 aiogram
-rustplus
-Pillow
+flask
+requests
 aiohttp
+Pillow
+rustplus
+gunicorn
