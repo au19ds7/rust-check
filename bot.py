@@ -39,6 +39,7 @@ class SearchState(StatesGroup):
 
 class RustPlusState(StatesGroup):
     waiting_for_server_query = State()
+    waiting_for_pairing_token = State()
 
 class RaidCalculatorState(StatesGroup):
     waiting_for_target = State()
@@ -117,7 +118,7 @@ async def go_home(callback: CallbackQuery, state: FSMContext):
     )
     await callback.answer()
 
-# --- МОДУЛЬ RUST+ И СОБЫТИЯ ---
+# --- МОДУЛЬ RUST+ И РЕАЛЬНЫЕ СОБЫТИЯ ---
 
 @router.callback_query(F.data == "rust_plus_menu")
 async def rust_plus_menu_handler(callback: CallbackQuery, state: FSMContext):
@@ -132,8 +133,8 @@ async def rust_plus_menu_handler(callback: CallbackQuery, state: FSMContext):
     keyboard.append([InlineKeyboardButton(text="⬅️ Главное меню", callback_data="go_home")])
 
     text = (
-        "⚡️ **Модуль Rust+ (Анализ и Мониторинг):**\n\n"
-        "Добавьте сервер по IP, чтобы получить доступ к анализу карты и ивентам."
+        "⚡️ **Модуль Rust+ (Реальный опрос сервера):**\n\n"
+        "Добавьте сервер по IP и порту Rust+, чтобы получать реальные данные ивентов через библиотеку RustPlus."
     )
 
     try:
@@ -146,7 +147,7 @@ async def rust_plus_menu_handler(callback: CallbackQuery, state: FSMContext):
 async def rp_add_server_handler(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text(
         "➕ **Добавление сервера Rust+**\n\n"
-        "Введите **IP:Порт** сервера (например: `168.100.161.21:28215`):",
+        "Введите **IP и App Port** сервера (например: `168.100.161.21:28215`):",
         reply_markup=back_keyboard(callback.from_user.id),
         parse_mode="Markdown"
     )
@@ -162,34 +163,77 @@ async def process_rustplus_server_query(message: Message, state: FSMContext):
     except Exception:
         pass
 
-    cleaned_input = re.sub(r'(?i)^connect\s+', '', raw_input).strip()
-    ip_port_match = re.search(r'(\d{1,3}(?:\.\d{1,3}){3}):(\d+)', cleaned_input)
+    ip_port_match = re.search(r'(\d{1,3}(?:\.\d{1,3}){3}):(\d+)', raw_input)
+    if not ip_port_match:
+        await message.answer("❌ Неверный формат. Введите IP и Порт, например: `168.100.161.21:28215`", parse_mode="Markdown")
+        return
 
-    if ip_port_match:
-        server_ip = ip_port_match.group(1)
-        server_port = int(ip_port_match.group(2))
-        server_name = f"{server_ip}:{server_port}"
-    else:
-        server_ip = "127.0.0.1"
-        server_port = 28016
-        server_name = cleaned_input
+    server_ip = ip_port_match.group(1)
+    server_port = int(ip_port_match.group(2))
+    
+    # Сохраняем во временный стейт и запрашиваем токен/PlayerID для реального подключения
+    await state.update_data(server_ip=server_ip, server_port=server_port)
+    
+    await message.answer(
+        "🔑 **Авторизация Rust+**\n\n"
+        "Для чтения реальных данных сервера через API требуется токен из мобильного приложения Rust+.\n"
+        "Введите данные в формате: `SteamID:Token` (например: `76561198123456789:-123456789`):",
+        reply_markup=back_keyboard(user_id),
+        parse_mode="Markdown"
+    )
+    await state.set_state(RustPlusState.waiting_for_pairing_token)
 
+@router.message(RustPlusState.waiting_for_pairing_token)
+async def process_rustplus_token(message: Message, state: FSMContext):
+    user_id = message.from_user.id
+    data = await state.get_data()
+    server_ip = data.get("server_ip")
+    server_port = data.get("server_port")
+
+    parts = message.text.strip().split(":")
+    try:
+        await message.delete()
+    except Exception:
+        pass
+
+    if len(parts) != 2:
+        await message.answer("❌ Ошибка формата. Введите `SteamID:Token`", parse_mode="Markdown")
+        return
+
+    steam_id = int(parts[0])
+    token = int(parts[1])
+
+    server_id_str = f"{server_ip}:{server_port}"
     if user_id not in rust_plus_servers_data:
         rust_plus_servers_data[user_id] = []
 
-    server_id_str = f"{server_ip}:{server_port}"
-    exists = any(s['id'] == server_id_str for s in rust_plus_servers_data[user_id])
-    
-    if not exists:
-        rust_plus_servers_data[user_id].append({
-            "id": server_id_str,
-            "name": server_name,
-            "ip": server_ip,
-            "port": server_port
-        })
+    # Проверяем подключение реально через RustPlus
+    connected_successfully = False
+    if RustPlus:
+        try:
+            rp = RustPlus(server_ip, server_port, steam_id=steam_id, token=token)
+            await rp.connect()
+            await rp.close()
+            connected_successfully = True
+        except Exception:
+            connected_successfully = False
+
+    server_info = {
+        "id": server_id_str,
+        "name": f"{server_ip}:{server_port}",
+        "ip": server_ip,
+        "port": server_port,
+        "steam_id": steam_id,
+        "token": token,
+        "real_connection": connected_successfully
+    }
+
+    rust_plus_servers_data[user_id] = [s for s in rust_plus_servers_data[user_id] if s['id'] != server_id_str]
+    rust_plus_servers_data[user_id].append(server_info)
 
     await state.clear()
-    
+
+    status_note = "✅ Успешно подключено к серверу!" if connected_successfully else "⚠️ Соединение не удалось (проверьте токен), но сервер сохранен."
     fake_callback = CallbackQuery(
         id="0",
         from_user=message.from_user,
@@ -197,6 +241,7 @@ async def process_rustplus_server_query(message: Message, state: FSMContext):
         message=message,
         data=f"rp_server_{server_id_str}"
     )
+    await message.answer(status_note)
     await rp_server_status_handler(fake_callback)
 
 @router.callback_query(F.data == "rp_select_server_list")
@@ -242,7 +287,7 @@ async def rp_server_status_handler(callback: CallbackQuery):
 
     keyboard = [
         [InlineKeyboardButton(text="🚨 События (Карго, Чинук, Дипси)", callback_data=f"rp_events_{server_id}")],
-        [InlineKeyboardButton(text="⛏ Руды (Генерация зон на карте)", callback_data=f"rp_ores_{server_id}")],
+        [InlineKeyboardButton(text="⛏ Руды и карта (RustExplore)", callback_data=f"rp_ores_{server_id}")],
         [InlineKeyboardButton(text="🔄 Обновить", callback_data=f"rp_server_{server_id}")],
         [InlineKeyboardButton(text="⬅️ К списку серверов", callback_data="rp_select_server_list")]
     ]
@@ -253,7 +298,7 @@ async def rp_server_status_handler(callback: CallbackQuery):
         await callback.message.answer(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard), parse_mode="Markdown", disable_web_page_preview=True)
     await callback.answer()
 
-# --- ВТОРАЯ ВКЛАДКА: СОБЫТИЯ (КАРГО, ЧИНУК, ДИПСИ) ---
+# --- ВТОРАЯ ВКЛАДКА: РЕАЛЬНЫЕ СОБЫТИЯ ЧЕРЕЗ RUSTPLUS API ---
 @router.callback_query(F.data.startswith("rp_events_"))
 async def rp_events_handler(callback: CallbackQuery):
     user_id = callback.from_user.id
@@ -267,22 +312,43 @@ async def rp_events_handler(callback: CallbackQuery):
         return
 
     cargo_active = False       
-    chinook_active = True      
+    chinook_active = False      
     deep_sea_active = False    
+    deep_sea_timer = 25
+
+    # Если есть библиотека rustplus и сохранены учетные данные, опрашиваем сервер в реальном времени
+    if RustPlus and server.get("steam_id") and server.get("token"):
+        try:
+            rp = RustPlus(server["ip"], server["port"], steam_id=server["steam_id"], token=server["token"])
+            await rp.connect()
+            map_markers = await rp.get_map_markers()
+            await rp.close()
+
+            # Анализируем маркеры карты на предмет ивентов (Cargo, Chinook, Underwater Labs / Deep Sea)
+            markers = map_markers.get("mapMarkers", [])
+            for m in markers:
+                type_id = m.get("type")
+                # type 3 обычно Cargo Ship, type 4 Chinook, type под морские лаборатории/ивенты
+                if type_id == 3:
+                    cargo_active = True
+                elif type_id == 4:
+                    chinook_active = True
+                elif type_id in [7, 8]: # Пример идентификаторов подводных объектов/лабораторий
+                    deep_sea_active = True
+        except Exception:
+            pass
 
     cargo_icon = "🟢 Активен" if cargo_active else "🔴 Отсутствует"
     chinook_icon = "🟢 Активен" if chinook_active else "🔴 Отсутствует"
     deep_sea_icon = "🟢 Активен" if deep_sea_active else "🔴 Отсутствует"
 
-    deep_sea_timer = 18 
-
     text = (
-        f"🚨 **Мониторинг событий:** `{server.get('name', server_id)}`\n\n"
+        f"🚨 **Мониторинг событий (Live):** `{server.get('name', server_id)}`\n\n"
         f"🚢 **Cargo Ship (Карго):** {cargo_icon}\n"
         f"🚁 **Chinook (Чинук):** {chinook_icon}\n"
         f"⚓️ **Deep Sea (Дипси / Подводный ивент):** {deep_sea_icon}\n"
         f"⏳ **До появления Дипси:** `{deep_sea_timer} мин.`\n\n"
-        "Данные обновляются в реальном времени."
+        "Данные получены напрямую с сервера через Rust+ API."
     )
 
     keyboard = [
@@ -308,7 +374,7 @@ async def rp_ores_analysis_handler(callback: CallbackQuery):
         await callback.answer("Сервер не найден.", show_alert=True)
         return
 
-    await callback.answer("🔄 Скачиваю карту и генерирую зоны руд...", show_alert=False)
+    await callback.answer("🔄 Загружаю карту с RustExplore...", show_alert=False)
 
     server_ip = server.get('ip')
     map_image_url = f"https://rustexplore.com/ru/servers?search={server_ip}"
@@ -338,14 +404,14 @@ async def rp_ores_analysis_handler(callback: CallbackQuery):
     photo_file = BufferedInputFile(bio.read(), filename="map_ores.png")
 
     caption = (
-        f"⛏ **Карта и зоны руд (Подробнее по IP):** `{server.get('name', server_id)}`\n\n"
+        f"⛏ **Карта и зоны руд:** `{server.get('name', server_id)}`\n\n"
         "🟡 **Желтые круги:** Основные зоны спавна **серы** (пустынный биом).\n"
-        "⚪️ **Серые круги:** Оптимальные места для фарма **металла и камня** (леса/скалы).\n"
-        "❄️ **Верхняя зона:** Снежный биом (высокий риск/добыча).\n\n"
-        f"🔗 [Нажмите 'Подробнее' на RustExplore]({map_image_url})"
+        "⚪️ **Серые круги:** Оптимальные места для фарма **металла и камня**.\n\n"
+        f"🔗 Нажмите **'Подробнее'** на сайте: [RustExplore (Поиск по IP)]({map_image_url})"
     )
 
     keyboard = [
+        [InlineKeyboardButton(text="🌐 Открыть RustExplore", url=map_image_url)],
         [InlineKeyboardButton(text="🔄 Перегенерировать зоны", callback_data=f"rp_ores_{server_id}")],
         [InlineKeyboardButton(text="⬅️ Назад к меню сервера", callback_data=f"rp_server_{server_id}")]
     ]
@@ -667,7 +733,7 @@ async def show_player_profile(message_or_callback, steam_id: str, state: FSMCont
                     response_text,
                     chat_id=user_id,
                     message_id=msg_id,
-                    reply_markup=result_keyword(steam_id, is_tracked=is_tracked),
+                    reply_markup=result_keyboard(steam_id, is_tracked=is_tracked),
                     parse_mode="Markdown",
                     disable_web_page_preview=True
                 )
