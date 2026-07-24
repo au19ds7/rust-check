@@ -6,11 +6,10 @@ import logging
 import re
 from urllib.parse import quote
 from bs4 import BeautifulSoup
-from playwright.async_api import async_playwright
 
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.filters import Command
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, FSInputFile
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
@@ -24,13 +23,12 @@ dp = Dispatcher()
 router = Router()
 
 # Хранилища данных в памяти
-active_trackers = {}          # {user_id: True/False} для фоновой задачи
 tracked_players_list = {}     # {user_id: set(steam_ids)}
 search_cache = {}             # Кеш поиска по никнеймам
 last_search_message = {}      # ID последнего сообщения для обновления интерфейса
 user_languages = {}           # {user_id: "ru"/"en"/"uk"}
 user_servers = {}             # {user_id: [list of server names]}
-player_last_status = {}       # {user_id: {steam_id: is_in_rust}}
+player_last_status = {}       # {user_id: {steam_id: bool}}
 
 LANGS = {
     "ru": {
@@ -606,6 +604,26 @@ async def start_track_player(callback: CallbackQuery):
         tracked_players_list[user_id] = set()
     tracked_players_list[user_id].add(steam_id)
     
+    # Принудительно запрашиваем текущий статус игрока при добавлении в отслеживание,
+    # чтобы фоновый монитор сразу знал начальное состояние (в Rust он или нет)
+    url = f"https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v0002/?key={STEAM_API_KEY}&steamids={steam_id}"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url) as resp:
+                data = await resp.json()
+                players = data.get("response", {}).get("players", [])
+                if players:
+                    p = players[0]
+                    gameid = str(p.get("gameid", ""))
+                    game_extra = p.get("gameextrainfo", "")
+                    is_in_rust = (gameid == "252490" or "Rust" in game_extra)
+                    
+                    if user_id not in player_last_status:
+                        player_last_status[user_id] = {}
+                    player_last_status[user_id][steam_id] = is_in_rust
+    except Exception as e:
+        logging.error(f"Error initializing track status: {e}")
+
     await callback.answer(t(user_id, "track_on"), show_alert=True)
     try:
         await callback.message.edit_reply_markup(reply_markup=result_keyboard(user_id, steam_id, is_tracked=True))
@@ -619,6 +637,9 @@ async def stop_track_player(callback: CallbackQuery):
     
     if user_id in tracked_players_list:
         tracked_players_list[user_id].discard(steam_id)
+        
+    if user_id in player_last_status:
+        player_last_status[user_id].pop(steam_id, None)
         
     await callback.answer(t(user_id, "track_off"), show_alert=True)
     try:
@@ -646,7 +667,7 @@ async def show_tracked_list(callback: CallbackQuery):
 
 async def background_player_monitor():
     while True:
-        await asyncio.sleep(60)
+        await asyncio.sleep(30)  # Проверка каждые 30 секунд
         if not tracked_players_list:
             continue
             
@@ -672,6 +693,7 @@ async def background_player_monitor():
                         gameid = str(p.get("gameid", ""))
                         game_extra = p.get("gameextrainfo", "")
                         
+                        # Проверка, играет ли игрок именно в Rust (по appid или названию игры)
                         is_in_rust = (gameid == "252490" or "Rust" in game_extra)
                         
                         for user_id, user_sids in tracked_players_list.items():
@@ -681,22 +703,26 @@ async def background_player_monitor():
                                 
                                 last_status = player_last_status[user_id].get(sid)
                                 
-                                # Если статус проверяется впервые для этого пользователя, просто запоминаем его без отправки уведомления
+                                # Если статус еще не был записан, сохраняем и пропускаем первую итерацию
                                 if last_status is None:
                                     player_last_status[user_id][sid] = is_in_rust
                                     continue
 
+                                # Если игрок зашел в Rust (раньше не был в Rust, а теперь в Rust)
                                 if is_in_rust and not last_status:
                                     try:
                                         await bot.send_message(user_id, t(user_id, "notif_entered", name=name), parse_mode="Markdown")
-                                    except Exception:
-                                        pass
+                                    except Exception as e:
+                                        logging.error(f"Failed to send enter notification: {e}")
+                                
+                                # Если игрок вышел из Rust (раньше был в Rust, а теперь вышел)
                                 elif not is_in_rust and last_status:
                                     try:
                                         await bot.send_message(user_id, t(user_id, "notif_left", name=name), parse_mode="Markdown")
-                                    except Exception:
-                                        pass
+                                    except Exception as e:
+                                        logging.error(f"Failed to send leave notification: {e}")
                                 
+                                # Обновляем текущий статус игрока
                                 player_last_status[user_id][sid] = is_in_rust
         except Exception as e:
             logging.error(f"Background monitor error: {e}")
