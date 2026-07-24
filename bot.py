@@ -118,7 +118,7 @@ async def show_tracked_list(callback: CallbackQuery):
                     data = await resp.json()
                     pl_list = data.get("response", {}).get("players", [])
                     if pl_list:
-                        p = pl_list
+                        p = pl_list[0]
                         name = p.get("personaname", base_name)
                         gameid = p.get("gameid")
                         game_ext_info = p.get("gameextrainfo", "")
@@ -179,7 +179,6 @@ async def process_steam_id_input(message: Message, state: FSMContext):
     elif "steamcommunity.com/profiles/" in user_input:
         user_input = user_input.rstrip("/").split("/")[-1]
 
-    # Проверяем, если это кастомная ссылка (строка), пробуем превратить в Steam ID через API
     if not user_input.isdigit() or len(user_input) != 17:
         async with aiohttp.ClientSession() as session:
             vanity_url = f"https://api.steampowered.com/ISteamUser/ResolveVanityURL/v0001/?key={STEAM_API_KEY}&vanityurl={user_input}"
@@ -189,7 +188,7 @@ async def process_steam_id_input(message: Message, state: FSMContext):
                 if response_block.get("success") == 1:
                     user_input = response_block.get("steamid")
                 else:
-                    await message.answer("❌ Игрок не найден. Проверьте правильность Steam ID или ссылки.", reply_markup=back_keyboard(message.from_user.id))
+                    await message.answer("❌ Игрок не найден. Проверьте правильность Steam ID или ссылки.", reply_markup=back_keyboard(message.chat.id))
                     await state.clear()
                     return
 
@@ -206,26 +205,26 @@ async def process_nickname_input(message: Message, state: FSMContext):
     async with aiohttp.ClientSession() as session:
         async with session.get(search_url, headers=headers) as resp:
             if resp.status != 200:
-                await msg.edit_text("❌ Ошибка при обращении к серверам Steam.", reply_markup=back_keyboard(message.from_user.id))
+                await msg.edit_text("❌ Ошибка при обращении к серверам Steam.", reply_markup=back_keyboard(message.chat.id))
                 await state.clear()
                 return
             
             try:
                 data = await resp.json()
             except Exception:
-                await msg.edit_text("❌ Не удалось обработать ответ от Steam.", reply_markup=back_keyboard(message.from_user.id))
+                await msg.edit_text("❌ Не удалось обработать ответ от Steam.", reply_markup=back_keyboard(message.chat.id))
                 await state.clear()
                 return
 
             results = data if isinstance(data, list) else data.get("results", [])
 
             if not results:
-                await msg.edit_text("❌ Игроки с таким ником не найдены.", reply_markup=back_keyboard(message.from_user.id))
+                await msg.edit_text("❌ Игроки с таким ником не найдены.", reply_markup=back_keyboard(message.chat.id))
                 await state.clear()
                 return
 
             if len(results) == 1:
-                steam_id = results.get("steamid")
+                steam_id = results[0].get("steamid")
                 await msg.delete()
                 await show_player_profile(message, steam_id, state)
                 return
@@ -238,7 +237,7 @@ async def process_nickname_input(message: Message, state: FSMContext):
                     keyboard.append([InlineKeyboardButton(text=name, callback_data=f"select_player_{s_id}")])
             
             if not keyboard:
-                await msg.edit_text("❌ Не удалось найти подходящих профилей.", reply_markup=back_keyboard(message.from_user.id))
+                await msg.edit_text("❌ Не удалось найти подходящих профилей.", reply_markup=back_keyboard(message.chat.id))
                 await state.clear()
                 return
 
@@ -258,6 +257,8 @@ async def select_player_callback(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
 
 async def show_player_profile(message: Message, steam_id: str, state: FSMContext, edit_message: bool = False):
+    chat_id = message.chat.id if hasattr(message, "chat") else message.message.chat.id
+    
     if not edit_message:
         msg = await message.answer("🔍 Загружаю информацию об игроке...")
     else:
@@ -274,12 +275,15 @@ async def show_player_profile(message: Message, steam_id: str, state: FSMContext
             players = data.get("response", {}).get("players", [])
             
             if not players:
-                chat_id = message.chat.id if hasattr(message, "chat") else message.message.chat.id
-                await msg.edit_text("❌ Профиль игрока скрыт или не найден.", reply_markup=back_keyboard(chat_id))
+                if edit_message:
+                    await msg.edit_text("❌ Профиль игрока скрыт или не найден.", reply_markup=back_keyboard(chat_id))
+                else:
+                    await msg.delete()
+                    await message.answer("❌ Профиль игрока скрыт или не найден.", reply_markup=back_keyboard(chat_id))
                 await state.clear()
                 return
             
-            player = players
+            player = players[0]
             name = player.get("personaname", "Неизвестно")
             profile_link = player.get("profileurl", "")
             gameid = player.get("gameid")
@@ -334,7 +338,7 @@ async def show_player_profile(message: Message, steam_id: str, state: FSMContext
             f"• [RustStats.io]({ruststats_link})"
         )
 
-        user_id = message.chat.id if hasattr(message, "chat") else message.message.chat.id
+        user_id = chat_id
         is_tracked = user_id in active_trackers and steam_id in active_trackers[user_id]
 
         if edit_message:
@@ -376,7 +380,7 @@ async def start_track_player(callback: CallbackQuery):
             data = await resp.json()
             players = data.get("response", {}).get("players", [])
             if players:
-                player_name = players.get("personaname", steam_id)
+                player_name = players[0].get("personaname", steam_id)
 
     tracked_players_list[user_id][steam_id] = player_name
 
@@ -391,7 +395,7 @@ async def start_track_player(callback: CallbackQuery):
                         data = await resp.json()
                         players = data.get("response", {}).get("players", [])
                         if players:
-                            p = players
+                            p = players[0]
                             p_name = p.get("personaname", "Игрок")
                             gameid = p.get("gameid")
                             game_ext_info = p.get("gameextrainfo", "")
