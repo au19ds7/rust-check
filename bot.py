@@ -423,7 +423,7 @@ async def show_player_profile_by_id(user_id: int, steam_id: str, msg_id: int, st
             p = players[0]
             name = p.get("personaname", "Unknown")
             profile_url = p.get("profileurl", "#")
-            gameid = p.get("gameid")
+            gameid = str(p.get("gameid", ""))
             game_extra = p.get("gameextrainfo", "")
             
             if gameid == "252490" or "Rust" in game_extra:
@@ -669,7 +669,7 @@ async def background_player_monitor():
                     for p in players:
                         sid = p.get("steamid")
                         name = p.get("personaname", "Player")
-                        gameid = p.get("gameid")
+                        gameid = str(p.get("gameid", ""))
                         game_extra = p.get("gameextrainfo", "")
                         
                         is_in_rust = (gameid == "252490" or "Rust" in game_extra)
@@ -679,7 +679,13 @@ async def background_player_monitor():
                                 if user_id not in player_last_status:
                                     player_last_status[user_id] = {}
                                 
-                                last_status = player_last_status[user_id].get(sid, False)
+                                last_status = player_last_status[user_id].get(sid)
+                                
+                                # Если статус проверяется впервые для этого пользователя, просто запоминаем его без отправки уведомления
+                                if last_status is None:
+                                    player_last_status[user_id][sid] = is_in_rust
+                                    continue
+
                                 if is_in_rust and not last_status:
                                     try:
                                         await bot.send_message(user_id, t(user_id, "notif_entered", name=name), parse_mode="Markdown")
