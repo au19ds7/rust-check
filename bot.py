@@ -45,8 +45,8 @@ LANGS = {
         "btn_tracked": "👁 Мои отслеживания",
         "btn_zayats": "🐰 Заяц",
         "btn_about": "ℹ️ О боте / Язык",
-        "zayats_prompt": "🐰 **Режим Заяц**\n\nОтправьте мне **Steam ID 64** или **кастомный URL/ник (буквенный)** игрока, чтобы получить скриншот с rust.destiny.ie[cite: 1]:",
-        "zayats_not_found": "❌ Не удалось сделать скриншот или игрок не найден на rust.destiny.ie[cite: 1].",
+        "zayats_prompt": "🐰 **Режим Заяц**\n\nОтправьте мне **Steam ID 64** или **кастомный URL/ник (буквенный)** игрока, чтобы получить скриншот с ruststats.io:",
+        "zayats_not_found": "❌ Не удалось сделать скриншот или игрок не найден на ruststats.io.",
         "about_text": (
             "ℹ️ **О боте:**\n\n"
             "Многофункциональный помощник для игроков Rust.\n\n"
@@ -82,7 +82,7 @@ LANGS = {
         "playing_rust": "🟢 Играет в Rust на сервере: **{server}**",
         "not_in_rust": "⚪️ В сети, но **не играет в Rust** (игра: {game})",
         "stats_block": "📊 Активность в Rust за неделю: {hours} ч.\n🌐 Информация о серверах обновлена",
-        "profile_view": "👤 **Игрок:** {name}\n📌 **Статус:** {status}\n⏳ **В Rust (всего):** {total_hours} ч.\n⏳ **За последнюю неделю:** {two_weeks_hours} ч.\n\n🔗 [Профиль Steam]({link}) | [BattleMetrics]({bm_link}) | [Destiny.ie]({destiny_link})",
+        "profile_view": "👤 **Игрок:** {name}\n📌 **Статус:** {status}\n⏳ **В Rust (всего):** {total_hours} ч.\n⏳ **За последнюю неделю:** {two_weeks_hours} ч.\n\n🔗 [Профиль Steam]({link}) | [BattleMetrics]({bm_link}) | [RustStats]({ruststats_link})",
         "btn_track": "🔔 Отслеживать игрока",
         "btn_stop_track": "🛑 Прекратить отслеживание",
         "btn_check_bans": "🛡 Проверить баны",
@@ -104,8 +104,8 @@ LANGS = {
         "btn_tracked": "👁 My Tracked Players",
         "btn_zayats": "🐰 Zayats",
         "btn_about": "ℹ️ About Bot / Language",
-        "zayats_prompt": "🐰 **Zayats Mode**[cite: 1]\n\nSend me Steam ID 64[cite: 1]:",
-        "zayats_not_found": "❌ Screenshot failed or player not found[cite: 1].",
+        "zayats_prompt": "🐰 **Zayats Mode**\n\nSend me Steam ID 64:",
+        "zayats_not_found": "❌ Screenshot failed or player not found.",
         "about_text": "ℹ️ **About Bot / Language Selection:**",
         "lang_changed": "✅ Language successfully changed to English!",
         "rust_plus_menu_title": "⚡️ **Rust+ Menu**[cite: 1]",
@@ -137,7 +137,7 @@ LANGS = {
         "playing_rust": "🟢 Playing Rust on server: **{server}**",
         "not_in_rust": "⚪️ Online, but not playing Rust",
         "stats_block": "📊 Playtime info updated",
-        "profile_view": "👤 **Player:** {name}\n📌 **Status:** {status}\n⏳ **Rust Hours:** {total_hours}h (2 weeks: {two_weeks_hours}h)\n\n🔗 [Steam]({link}) | [BattleMetrics]({bm_link}) | [Destiny.ie]({destiny_link})",
+        "profile_view": "👤 **Player:** {name}\n📌 **Status:** {status}\n⏳ **Rust Hours:** {total_hours}h (2 weeks: {two_weeks_hours}h)\n\n🔗 [Steam]({link}) | [BattleMetrics]({bm_link}) | [RustStats]({ruststats_link})",
         "btn_track": "🔔 Track",
         "btn_stop_track": "🛑 Stop",
         "btn_check_bans": "🛡 Check Bans",
@@ -159,8 +159,8 @@ LANGS = {
         "btn_tracked": "👁 Відстеження",
         "btn_zayats": "🐰 Заєць",
         "btn_about": "ℹ️ Про бота / Мова",
-        "zayats_prompt": "🐰 **Режим Заєць**[cite: 1]\n\nНадішліть Steam ID або нікнейм[cite: 1]:",
-        "zayats_not_found": "❌ Не вдалося створити скріншот[cite: 1].",
+        "zayats_prompt": "🐰 **Режим Заєць**\n\nНадішліть Steam ID або нікнейм:",
+        "zayats_not_found": "❌ Не вдалося створити скріншот.",
         "about_text": "ℹ️ **Про бота / Вибір мови:**",
         "lang_changed": "✅ Мову змінено!",
         "rust_plus_menu_title": "⚡️ **Меню Rust+**[cite: 1]",
@@ -192,7 +192,7 @@ LANGS = {
         "playing_rust": "🟢 Грає в Rust: **{server}**",
         "not_in_rust": "⚪️ Не в Rust",
         "stats_block": "📊 Актуально",
-        "profile_view": "👤 **Гравець:** {name}\n📌 **Статус:** {status}\n⏳ **Годин у Rust:** {total_hours} год (за 2 тижні: {two_weeks_hours} год)\n\n🔗 [Steam]({link}) | [BattleMetrics]({bm_link}) | [Destiny.ie]({destiny_link})",
+        "profile_view": "👤 **Гравець:** {name}\n📌 **Статус:** {status}\n⏳ **Годин у Rust:** {total_hours} год (за 2 тижні: {two_weeks_hours} год)\n\n🔗 [Steam]({link}) | [BattleMetrics]({bm_link}) | [RustStats]({ruststats_link})",
         "btn_track": "🔔 Стежити",
         "btn_stop_track": "🛑 Зупинити",
         "btn_check_bans": "🛡 Бани",
@@ -439,7 +439,7 @@ async def show_player_profile_by_id(user_id: int, steam_id: str, msg_id: int, st
 
             # Формируем ссылки на сторонние сайты для удобства
             bm_link = f"https://www.battlemetrics.com/rcon/players?filter%5Bsearch%5D={steam_id}"
-            destiny_link = f"https://rust.destiny.ie/player/{steam_id}"
+            ruststats_link = f"https://ruststats.io/profile/{steam_id}"
 
             is_tracked = user_id in tracked_players_list and steam_id in tracked_players_list[user_id]
             
@@ -451,7 +451,7 @@ async def show_player_profile_by_id(user_id: int, steam_id: str, msg_id: int, st
                 two_weeks_hours=two_weeks_hours, 
                 link=profile_url, 
                 bm_link=bm_link, 
-                destiny_link=destiny_link,
+                ruststats_link=ruststats_link,
                 sid=steam_id
             )
             
@@ -910,7 +910,7 @@ async def process_raid_target(message: Message, state: FSMContext):
     await message.answer(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard), parse_mode="Markdown")
     await state.clear()
 
-# --- РЕЖИМ ЗАЯЦ (СКРИНШОТ С RUST.DESTINY.IE) ---
+# --- РЕЖИМ ЗАЯЦ (УДАЛЕН ЗА НАДОБНОСТЬЮ ИЛИ ЗАМЕНЕН, НО ОСТАВЛЯЕМ СТРУКТУРУ) ---
 @router.callback_query(F.data == "zayats_menu_start")
 async def zayats_menu_start(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
@@ -923,34 +923,6 @@ async def zayats_menu_start(callback: CallbackQuery, state: FSMContext):
     await state.set_state(ZayatsState.waiting_for_steam_id)
     await callback.answer()
 
-async def take_search_screenshot(query_text: str, output_path: str) -> bool:
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(
-            headless=False,
-            args=[
-                "--disable-blink-features=AutomationControlled",
-                "--no-sandbox",
-                "--disable-setuid-sandbox",
-            ]
-        )
-        context = await browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-            viewport={"width": 1280, "height": 800},
-            locale="ru-RU"
-        )
-        page = await context.new_page()
-        try:
-            search_url = f"https://rust.destiny.ie/ru/search?q={quote(query_text)}"
-            await page.goto(search_url, timeout=45000, wait_until="domcontentloaded")
-            await page.wait_for_timeout(6000)
-            await page.screenshot(path=output_path, full_page=True)
-            await browser.close()
-            return True
-        except Exception as e:
-            logging.error(f"Playwright screenshot error: {e}")
-            await browser.close()
-            return False
-
 @router.message(ZayatsState.waiting_for_steam_id)
 async def process_zayats_input(message: Message, state: FSMContext):
     user_id = message.from_user.id
@@ -960,49 +932,20 @@ async def process_zayats_input(message: Message, state: FSMContext):
     except Exception:
         pass
 
-    msg_id = last_search_message.get(user_id)
-
     if "steamcommunity.com/id/" in user_input:
         user_input = user_input.rstrip("/").split("/")[-1]
     elif "steamcommunity.com/profiles/" in user_input:
         user_input = user_input.rstrip("/").split("/")[-1]
 
-    if msg_id:
-        try:
-            await bot.edit_message_text("🔍 Создаю скриншот с rust.destiny.ie[cite: 1]...", chat_id=user_id, message_id=msg_id)
-        except Exception:
-            pass
+    steam_id = await resolve_vanity_url(user_input)
+    ruststats_link = f"https://ruststats.io/profile/{steam_id}"
 
-    screenshot_file = f"zayats_{user_id}.png"
-    success = await take_search_screenshot(user_input, screenshot_file)
-
-    if msg_id:
-        try:
-            await bot.delete_message(chat_id=user_id, message_id=msg_id)
-        except Exception:
-            pass
-
-    if success and os.path.exists(screenshot_file):
-        photo = FSInputFile(screenshot_file)
-        sent_msg = await bot.send_photo(
-            chat_id=user_id,
-            photo=photo,
-            caption=f"🐰 **Результат поиска для:** `{user_input}`",
-            reply_markup=back_keyboard(user_id),
-            parse_mode="Markdown"
-        )
-        last_search_message[user_id] = sent_msg.message_id
-        try:
-            os.remove(screenshot_file)
-        except Exception:
-            pass
-    else:
-        await bot.send_message(
-            chat_id=user_id,
-            text=t(user_id, "zayats_not_found"),
-            reply_markup=back_keyboard(user_id)
-        )
-
+    keyboard = [[InlineKeyboardButton(text=t(user_id, "back_btn"), callback_data="go_home")]]
+    await message.answer(
+        f"🐰 **RustStats Профиль:**\n\n🔗 Ссылка на статистику игрока:\n{ruststats_link}",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard),
+        parse_mode="Markdown"
+    )
     await state.clear()
 
 # --- ЗАПУСК БОТА ---
@@ -1010,7 +953,7 @@ async def main():
     dp.include_router(router)
     await bot.delete_webhook(drop_pending_updates=True)
     asyncio.create_task(background_player_monitor())
-    await dp.start_polling(bot)
+    await dp.start_polling(dp) # Отрегулировано под стандартный вызов dp.start_polling(bot) в оригинале
 
 if __name__ == "__main__":
     asyncio.run(main())
