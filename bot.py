@@ -45,27 +45,27 @@ LANGS = {
         "btn_tracked": "👁 Мои отслеживания",
         "btn_zayats": "🐰 Заяц",
         "btn_about": "ℹ️ О боте / Язык",
-        "zayats_prompt": "🐰 **Режим Заяц**\n\nОтправьте мне **Steam ID 64** или **кастомный URL/ник (буквенный)** игрока, чтобы получить скриншот с rust.destiny.ie:",
-        "zayats_not_found": "❌ Не удалось сделать скриншот или игрок не найден на rust.destiny.ie.",
+        "zayats_prompt": "🐰 **Режим Заяц**\n\nОтправьте мне **Steam ID 64** или **кастомный URL/ник (буквенный)** игрока, чтобы получить скриншот с rust.destiny.ie[cite: 1]:",
+        "zayats_not_found": "❌ Не удалось сделать скриншот или игрок не найден на rust.destiny.ie[cite: 1].",
         "about_text": (
             "ℹ️ **О боте:**\n\n"
             "Многофункциональный помощник для игроков Rust.\n\n"
             "🌐 **Выберите язык / Choose language / Виберіть мову:**"
         ),
         "lang_changed": "✅ Язык успешно изменен на Русский!",
-        "rust_plus_menu_title": "⚡️ **Меню Rust+**\n\nВыберите нужный раздел:",
-        "rp_tab_online": "🟢 1. Онлайн",
-        "rp_tab_map": "🗺 2. Карта",
-        "rp_tab_third": "⚙️ 3. Настройки / Прочее",
-        "rp_online_title": "🟢 **Список серверов (Онлайн):**\n\nВыберите сервер или добавьте его по точному названию:",
-        "rp_map_title": "🗺 **Список серверов (Карта):**\n\nВыберите сервер для получения карты:",
-        "btn_add_server": "➕ Добавить сервер",
-        "btn_delete_server": "🗑 Удалить сервер",
-        "rp_prompt_ip": "🌐 **Введите точное название сервера Rust**\n\nНапример: `Official Server #1`",
-        "rp_server_added": "✅ Сервер успешно добавлен в список!",
-        "rp_no_servers": "📭 Список серверов пуст.",
-        "rp_select_to_del": "🗑 Выберите сервер для удаления:",
-        "rp_deleted": "✅ Сервер удален.",
+        "rust_plus_menu_title": "⚡️ **Меню Rust+**[cite: 1]\n\nВыберите нужный раздел[cite: 1]:",
+        "rp_tab_online": "🟢 1. Онлайн[cite: 1]",
+        "rp_tab_map": "🗺 2. Карта[cite: 1]",
+        "rp_tab_third": "⚙️ 3. Настройки / Прочее[cite: 1]",
+        "rp_online_title": "🟢 **Список серверов (Онлайн):**\n\nВыберите сервер или добавьте его по точному названию[cite: 1]:",
+        "rp_map_title": "🗺 **Список серверов (Карта):**\n\nВыберите сервер для получения карты[cite: 1]:",
+        "btn_add_server": "➕ Добавить сервер[cite: 1]",
+        "btn_delete_server": "🗑 Удалить сервер[cite: 1]",
+        "rp_prompt_ip": "🌐 **Введите точное название сервера Rust**[cite: 1]\n\nНапример: `Official Server #1`[cite: 1]",
+        "rp_server_added": "✅ Сервер успешно добавлен в список![cite: 1]",
+        "rp_no_servers": "📭 Список серверов пуст[cite: 1].",
+        "rp_select_to_del": "🗑 Выберите сервер для удаления[cite: 1]:",
+        "rp_deleted": "✅ Сервер удален[cite: 1].",
         "raid_title": "💥 **Калькулятор рейда**\n\nВведите название цели (например: `Гаражка`, `Каменный шкаф`, `Каменный дом`):",
         "raid_result": "💥 **Расчет рейда для:** `{target}`\n\n• Сатчели (Satchel): 4 шт.\n• Срывные заряды (C4): 1 шт.\n• Ракеты: 2 шт.\n• Взрывчатка: учтено.",
         "btn_calc_more": "🔄 Посчитать еще",
@@ -82,7 +82,7 @@ LANGS = {
         "playing_rust": "🟢 Играет в Rust на сервере: **{server}**",
         "not_in_rust": "⚪️ В сети, но **не играет в Rust** (игра: {game})",
         "stats_block": "📊 Активность в Rust за неделю: {hours} ч.\n🌐 Информация о серверах обновлена",
-        "profile_view": "👤 **Игрок:** {name}\n📌 **Статус:** {status}\n⏳ **В Rust:** {hours}\n\n{stats}\n\n🔗 [Профиль Steam]({link})",
+        "profile_view": "👤 **Игрок:** {name}\n📌 **Статус:** {status}\n⏳ **В Rust (всего):** {total_hours} ч.\n⏳ **За последнюю неделю:** {two_weeks_hours} ч.\n\n🔗 [Профиль Steam]({link}) | [BattleMetrics]({bm_link}) | [Destiny.ie]({destiny_link})",
         "btn_track": "🔔 Отслеживать игрока",
         "btn_stop_track": "🛑 Прекратить отслеживание",
         "btn_check_bans": "🛡 Проверить баны",
@@ -104,23 +104,23 @@ LANGS = {
         "btn_tracked": "👁 My Tracked Players",
         "btn_zayats": "🐰 Zayats",
         "btn_about": "ℹ️ About Bot / Language",
-        "zayats_prompt": "🐰 **Zayats Mode**\n\nSend me Steam ID 64:",
-        "zayats_not_found": "❌ Screenshot failed or player not found.",
+        "zayats_prompt": "🐰 **Zayats Mode**[cite: 1]\n\nSend me Steam ID 64[cite: 1]:",
+        "zayats_not_found": "❌ Screenshot failed or player not found[cite: 1].",
         "about_text": "ℹ️ **About Bot / Language Selection:**",
         "lang_changed": "✅ Language successfully changed to English!",
-        "rust_plus_menu_title": "⚡️ **Rust+ Menu**",
-        "rp_tab_online": "🟢 1. Online",
-        "rp_tab_map": "🗺 2. Map",
-        "rp_tab_third": "⚙️ 3. Settings / Other",
-        "rp_online_title": "🟢 **Servers List (Online):**",
-        "rp_map_title": "🗺 **Servers List (Map):**",
-        "btn_add_server": "➕ Add server",
-        "btn_delete_server": "🗑 Delete server",
-        "rp_prompt_ip": "🌐 **Enter exact server name**",
-        "rp_server_added": "✅ Server successfully added!",
-        "rp_no_servers": "📭 Server list is empty.",
-        "rp_select_to_del": "🗑 Select server to delete:",
-        "rp_deleted": "✅ Server deleted.",
+        "rust_plus_menu_title": "⚡️ **Rust+ Menu**[cite: 1]",
+        "rp_tab_online": "🟢 1. Online[cite: 1]",
+        "rp_tab_map": "🗺 2. Map[cite: 1]",
+        "rp_tab_third": "⚙️ 3. Settings / Other[cite: 1]",
+        "rp_online_title": "🟢 **Servers List (Online):**[cite: 1]",
+        "rp_map_title": "🗺 **Servers List (Map):**[cite: 1]",
+        "btn_add_server": "➕ Add server[cite: 1]",
+        "btn_delete_server": "🗑 Delete server[cite: 1]",
+        "rp_prompt_ip": "🌐 **Enter exact server name**[cite: 1]",
+        "rp_server_added": "✅ Server successfully added![cite: 1]",
+        "rp_no_servers": "📭 Server list is empty[cite: 1].",
+        "rp_select_to_del": "🗑 Select server to delete[cite: 1]:",
+        "rp_deleted": "✅ Server deleted[cite: 1].",
         "raid_title": "💥 **Raid Calculator**",
         "raid_result": "💥 **Raid calculation for:** `{target}`",
         "btn_calc_more": "🔄 Calculate another",
@@ -137,7 +137,7 @@ LANGS = {
         "playing_rust": "🟢 Playing Rust on server: **{server}**",
         "not_in_rust": "⚪️ Online, but not playing Rust",
         "stats_block": "📊 Playtime info updated",
-        "profile_view": "👤 **Player:** {name}\n📌 **Status:** {status}",
+        "profile_view": "👤 **Player:** {name}\n📌 **Status:** {status}\n⏳ **Rust Hours:** {total_hours}h (2 weeks: {two_weeks_hours}h)\n\n🔗 [Steam]({link}) | [BattleMetrics]({bm_link}) | [Destiny.ie]({destiny_link})",
         "btn_track": "🔔 Track",
         "btn_stop_track": "🛑 Stop",
         "btn_check_bans": "🛡 Check Bans",
@@ -159,23 +159,23 @@ LANGS = {
         "btn_tracked": "👁 Відстеження",
         "btn_zayats": "🐰 Заєць",
         "btn_about": "ℹ️ Про бота / Мова",
-        "zayats_prompt": "🐰 **Режим Заєць**\n\nНадішліть Steam ID або нікнейм:",
-        "zayats_not_found": "❌ Не вдалося створити скріншот.",
+        "zayats_prompt": "🐰 **Режим Заєць**[cite: 1]\n\nНадішліть Steam ID або нікнейм[cite: 1]:",
+        "zayats_not_found": "❌ Не вдалося створити скріншот[cite: 1].",
         "about_text": "ℹ️ **Про бота / Вибір мови:**",
         "lang_changed": "✅ Мову змінено!",
-        "rust_plus_menu_title": "⚡️ **Меню Rust+**",
-        "rp_tab_online": "🟢 1. Онлайн",
-        "rp_tab_map": "🗺 2. Карта",
-        "rp_tab_third": "⚙️ 3. Інше",
-        "rp_online_title": "🟢 **Список серверів (Онлайн):**",
-        "rp_map_title": "🗺 **Список серверів (Карта):**",
-        "btn_add_server": "➕ Додати сервер",
-        "btn_delete_server": "🗑 Видалити",
-        "rp_prompt_ip": "🌐 **Введіть назву сервера**",
-        "rp_server_added": "✅ Сервер додано!",
-        "rp_no_servers": "📭 Список порожній.",
-        "rp_select_to_del": "🗑 Виберіть для видалення:",
-        "rp_deleted": "✅ Видалено.",
+        "rust_plus_menu_title": "⚡️ **Меню Rust+**[cite: 1]",
+        "rp_tab_online": "🟢 1. Онлайн[cite: 1]",
+        "rp_tab_map": "🗺 2. Карта[cite: 1]",
+        "rp_tab_third": "⚙️ 3. Інше[cite: 1]",
+        "rp_online_title": "🟢 **Список серверів (Онлайн):**[cite: 1]",
+        "rp_map_title": "🗺 **Список серверів (Карта):**[cite: 1]",
+        "btn_add_server": "➕ Додати сервер[cite: 1]",
+        "btn_delete_server": "🗑 Видалити[cite: 1]",
+        "rp_prompt_ip": "🌐 **Введіть назву сервера**[cite: 1]",
+        "rp_server_added": "✅ Сервер додано![cite: 1]",
+        "rp_no_servers": "📭 Список порожній[cite: 1].",
+        "rp_select_to_del": "🗑 Виберіть для видалення[cite: 1]:",
+        "rp_deleted": "✅ Видалено[cite: 1].",
         "raid_title": "💥 **Калькулятор рейду**",
         "raid_result": "💥 **Розрахунок:** `{target}`",
         "btn_calc_more": "🔄 Ще",
@@ -192,7 +192,7 @@ LANGS = {
         "playing_rust": "🟢 Грає в Rust: **{server}**",
         "not_in_rust": "⚪️ Не в Rust",
         "stats_block": "📊 Актуально",
-        "profile_view": "👤 **Гравець:** {name}",
+        "profile_view": "👤 **Гравець:** {name}\n📌 **Статус:** {status}\n⏳ **Годин у Rust:** {total_hours} год (за 2 тижні: {two_weeks_hours} год)\n\n🔗 [Steam]({link}) | [BattleMetrics]({bm_link}) | [Destiny.ie]({destiny_link})",
         "btn_track": "🔔 Стежити",
         "btn_stop_track": "🛑 Зупинити",
         "btn_check_bans": "🛡 Бани",
@@ -389,6 +389,26 @@ async def resolve_vanity_url(query: str) -> str:
 
     return query
 
+async def fetch_rust_playtime(steam_id: str) -> tuple:
+    """Получает часы в Rust через Steam Web API (App ID: 252490)"""
+    url = f"https://api.steampowered.com/IPlayerService/GetOwnedGames/v0001/?key={STEAM_API_KEY}&steamid={steam_id}&include_appinfo=true&format=json"
+    total_hours = 0.0
+    two_weeks_hours = 0.0
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    games = data.get("response", {}).get("games", [])
+                    for g in games:
+                        if str(g.get("appid")) == "252490":
+                            total_hours = round(g.get("playtime_forever", 0) / 60, 1)
+                            two_weeks_hours = round(g.get("playtime_2weeks", 0) / 60, 1)
+                            break
+    except Exception as e:
+        logging.error(f"Error fetching rust playtime: {e}")
+    return total_hours, two_weeks_hours
+
 async def show_player_profile_by_id(user_id: int, steam_id: str, msg_id: int, state: FSMContext):
     url = f"https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v0002/?key={STEAM_API_KEY}&steamids={steam_id}"
     
@@ -414,10 +434,26 @@ async def show_player_profile_by_id(user_id: int, steam_id: str, msg_id: int, st
             else:
                 status = t(user_id, "offline")
 
+            # Получаем реальные часы в Rust
+            total_hours, two_weeks_hours = await fetch_rust_playtime(steam_id)
+
+            # Формируем ссылки на сторонние сайты для удобства
+            bm_link = f"https://www.battlemetrics.com/rcon/players?filter%5Bsearch%5D={steam_id}"
+            destiny_link = f"https://rust.destiny.ie/player/{steam_id}"
+
             is_tracked = user_id in tracked_players_list and steam_id in tracked_players_list[user_id]
-            stats_txt = t(user_id, "stats_block", hours="Доступно")
             
-            text = t(user_id, "profile_view", name=name, status=status, hours="N/A", stats=stats_txt, link=profile_url, sid=steam_id)
+            text = t(
+                user_id, "profile_view", 
+                name=name, 
+                status=status, 
+                total_hours=total_hours, 
+                two_weeks_hours=two_weeks_hours, 
+                link=profile_url, 
+                bm_link=bm_link, 
+                destiny_link=destiny_link,
+                sid=steam_id
+            )
             
             if msg_id:
                 try:
@@ -933,7 +969,7 @@ async def process_zayats_input(message: Message, state: FSMContext):
 
     if msg_id:
         try:
-            await bot.edit_message_text("🔍 Создаю скриншот с rust.destiny.ie...", chat_id=user_id, message_id=msg_id)
+            await bot.edit_message_text("🔍 Создаю скриншот с rust.destiny.ie[cite: 1]...", chat_id=user_id, message_id=msg_id)
         except Exception:
             pass
 
