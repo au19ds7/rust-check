@@ -39,7 +39,7 @@ def result_keyboard(steam_id):
 async def cmd_start(message: Message, state: FSMContext):
     await state.clear()
     await message.answer(
-        "Привет! Я бот для поиска и отслеживания игроков **Rust** по Steam ID.\n\n"
+        "Привет! Я бот для поиска и отслеживания игроков **Rust** по Steam ID или кастомной ссылке.\n\n"
         "Нажми кнопку ниже, чтобы начать поиск:",
         reply_markup=main_keyboard(),
         parse_mode="Markdown"
@@ -64,7 +64,7 @@ async def go_home(callback: CallbackQuery, state: FSMContext):
 async def about_bot(callback: CallbackQuery):
     await callback.message.edit_text(
         "ℹ️ **О боте:**\n\n"
-        "Этот бот создан для проверки игроков в **Rust** по их Steam ID, просмотра статуса и ссылок.\n\n"
+        "Этот бот создан для проверки игроков в **Rust** по Steam ID, кастомным ссылкам, просмотра статуса и активности.\n\n"
         "👨‍💻 **Создатель:** Telegram: @allfytiq",
         reply_markup=back_keyboard(),
         parse_mode="Markdown"
@@ -74,7 +74,7 @@ async def about_bot(callback: CallbackQuery):
 @router.callback_query(F.data == "start_search")
 async def start_search(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text(
-        "Отправьте мне **Steam ID** (в формате 64-bit, например: `76561198000000000`) игрока:",
+        "Отправьте мне **Steam ID** (например, `76561198000000000`) или **кастомный ник/ссылку** (например, `numberonerust`):",
         reply_markup=back_keyboard(),
         parse_mode="Markdown"
     )
@@ -83,25 +83,45 @@ async def start_search(callback: CallbackQuery, state: FSMContext):
 
 @router.message(SearchState.waiting_for_steam_id)
 async def process_steam_id(message: Message, state: FSMContext):
-    steam_id = message.text.strip()
+    user_input = message.text.strip()
     
-    if not steam_id.isdigit() or len(steam_id) != 17:
-        await message.answer(
-            "❌ Неверный формат Steam ID. ID должен состоять из 17 цифр.\nПопробуйте еще раз или нажмите кнопку возврата:",
-            reply_markup=back_keyboard()
-        )
-        return
+    # Обработка ссылок Steam
+    if "steamcommunity.com/id/" in user_input:
+        user_input = user_input.rstrip("/").split("/")[-1]
+    elif "steamcommunity.com/profiles/" in user_input:
+        user_input = user_input.rstrip("/").split("/")[-1]
 
     msg = await message.answer("🔍 Ищу информацию об игроке в Steam...")
 
     async with aiohttp.ClientSession() as session:
+        steam_id = None
+
+        if user_input.isdigit() and len(user_input) == 17:
+            steam_id = user_input
+        else:
+            vanity_url = f"https://api.steampowered.com/ISteamUser/ResolveVanityURL/v0001/?key={STEAM_API_KEY}&vanityurl={user_input}"
+            async with session.get(vanity_url) as resp:
+                vanity_data = await resp.json()
+                response_block = vanity_data.get("response", {})
+                if response_block.get("success") == 1:
+                    steam_id = response_block.get("steamid")
+
+        if not steam_id:
+            await msg.edit_text(
+                "❌ Игрок не найден. Проверьте правильность введенного Steam ID или кастомного имени:",
+                reply_markup=back_keyboard()
+            )
+            await state.clear()
+            return
+
+        # 1. Получаем профиль
         profile_url = f"https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v0002/?key={STEAM_API_KEY}&steamids={steam_id}"
         async with session.get(profile_url) as resp:
             data = await resp.json()
             players = data.get("response", {}).get("players", [])
             
             if not players:
-                await msg.edit_text("❌ Игрок с таким Steam ID не найден.", reply_markup=back_keyboard())
+                await msg.edit_text("❌ Профиль игрока скрыт или не найден.", reply_markup=back_keyboard())
                 await state.clear()
                 return
             
@@ -111,12 +131,28 @@ async def process_steam_id(message: Message, state: FSMContext):
             gameid = player.get("gameid")
             game_ext_info = player.get("gameextrainfo", "")
 
-        # Статус игрока
+        # Статус
         status_text = "🔴 Оффлайн / Не в игре"
         if gameid == "252490" or "Rust" in game_ext_info:
             status_text = "🟢 Играет в Rust прямо сейчас!"
         elif gameid:
             status_text = f"🎮 Играет в другую игру: {game_ext_info}"
+
+        # 2. Получаем недавние игры (активность / последние игры за 2 недели)
+        recent_games_text = "Нет данных об активности за последнее время."
+        recent_url = f"https://api.steampowered.com/IPlayerService/GetRecentlyPlayedGames/v0001/?key={STEAM_API_KEY}&steamid={steam_id}&format=json"
+        async with session.get(recent_url) as resp:
+            recent_data = await resp.json()
+            games = recent_data.get("response", {}).get("games", [])
+            if games:
+                lines = []
+                # Берем до 3 последних игр из списка
+                for g in games[:3]:
+                    g_name = g.get("name", "Игра")
+                    minutes = g.get("playtime_2weeks", 0)
+                    hours = round(minutes / 60, 1)
+                    lines.append(f"• {g_name} — {hours} ч. за последние 2 недели")
+                recent_games_text = "\n".join(lines)
 
         steamrep_link = f"https://steamrep.com/profiles/{steam_id}"
         faceit_link = f"https://www.faceit.com/en/players/{name}"
@@ -124,6 +160,8 @@ async def process_steam_id(message: Message, state: FSMContext):
         response_text = (
             f"👤 **Игрок:** {name}\n"
             f"📌 **Статус:** {status_text}\n\n"
+            f"📊 **Последняя активность в играх:**\n"
+            f"{recent_games_text}\n\n"
             f"🔗 **Ссылки на площадки:**\n"
             f"• [Профиль Steam]({profile_link})\n"
             f"• [SteamRep (проверка банов)]({steamrep_link})\n"
