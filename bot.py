@@ -344,10 +344,11 @@ async def start_search_id(callback: CallbackQuery, state: FSMContext):
 async def start_search_nick(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
     await callback.message.edit_text(
-        "Отправьте мне **ник игрока** для поиска через `https://steamcommunity.com/search/users/?l=russian`.\n\n"
+        "Отправьте мне **ник игрока** для поиска через [Steam Search](https://steamcommunity.com/search/users/?l=russian).\n\n"
         "Можете отправлять сколько угодно ников подряд, пока не нажмете кнопку ниже:",
         reply_markup=stop_search_keyboard(),
-        parse_mode="Markdown"
+        parse_mode="Markdown",
+        disable_web_page_preview=True
     )
     last_search_message[user_id] = callback.message.message_id
     await state.set_state(SearchState.waiting_for_nickname)
@@ -399,14 +400,14 @@ async def process_nickname_input(message: Message, state: FSMContext):
         pass
 
     msg_id = last_search_message.get(user_id)
+    target_link = f"https://steamcommunity.com/search/users/?l=russian#text={quote(query)}"
     
     if msg_id:
         try:
-            await bot.edit_message_text(f"🔍 Ищу '{query}' через https://steamcommunity.com/search/users/?l=russian#text={quote(query)} ...", chat_id=user_id, message_id=msg_id, reply_markup=stop_search_keyboard())
+            await bot.edit_message_text(f"🔍 Ищу '{query}' через [Steam Search]({target_link}) ...", chat_id=user_id, message_id=msg_id, reply_markup=stop_search_keyboard(), parse_mode="Markdown", disable_web_page_preview=True)
         except Exception:
             pass
 
-    search_url = f"https://steamcommunity.com/search/users/?l=russian#text={quote(query)}"
     api_search_url = f"https://steamcommunity.com/search/users/?l=russian&text={quote(query)}"
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -460,7 +461,7 @@ async def process_nickname_input(message: Message, state: FSMContext):
 
     if not found_players:
         err_text = (
-            f"❌ По запросу **{query}** на `{search_url}` ничего не найдено.\n\n"
+            f"❌ По запросу **{query}** на [Steam Search]({target_link}) ничего не найдено.\n\n"
             "💡 Попробуйте ввести другой ник:"
         )
         if msg_id:
