@@ -4,13 +4,11 @@ import aiohttp
 import asyncio
 import logging
 import re
-import a2s
 from urllib.parse import quote
-from PIL import Image, ImageDraw
 
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.filters import Command
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, BufferedInputFile
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
@@ -29,8 +27,7 @@ search_cache = {}
 last_search_message = {}
 user_languages = {}
 
-# Хранилище серверов для кастомных вкладок (Онлайн / Карта)
-# Структура: user_servers[user_id] = [{"ip": "...", "name": "..."}]
+# Хранилище серверов: user_servers[user_id] = [{"ip": "..."}] (теперь храним только IP!)
 user_servers = {}
 
 LANGS = {
@@ -60,27 +57,25 @@ LANGS = {
         "btn_add_server": "➕ Добавить сервер",
         "btn_delete_server": "🗑 Удалить сервер",
         "rp_prompt_ip": "🌐 **Введите IP-адрес и порт сервера Rust**\n\nНапример: `193.70.81.30:28015` (можно вставлять вместе с `connect`)",
-        "rp_prompt_name": "📌 Теперь введите **название сервера** (как на RustExplore / BattleMetrics):\n\nНапример: `Enchanted.gg EU 5x PvE`",
-        "rp_server_added": "✅ Сервер успешно добавлен!",
+        "rp_server_added": "✅ Сервер успешно добавлен! Бот сам найдет его на RustExplore и BattleMetrics.",
         "rp_no_servers": "📭 Список серверов пуст.",
         "rp_select_to_del": "🗑 Выберите сервер для удаления:",
         "rp_deleted": "✅ Сервер удален.",
         "rp_online_instruction": (
             "📊 **Инструкция для получения онлайна:**\n\n"
-            "1. Скопируйте IP этого сервера и вставьте на сайт [RustExplore](https://rustexplore.com/ru/servers).\n"
-            "2. Скопируйте точное название первого сервера в выдаче.\n"
-            "3. Перейдите на [BattleMetrics](https://www.battlemetrics.com/), введите название в поиск.\n"
-            "4. Зайдите на самый верхний сервер, справа сверху скопируйте список игроков (кто заходил/выходил) и отправьте его сюда сообщением!"
+            "1. Бот автоматически использует IP `{ip}`.\n"
+            "2. Перейдите на [BattleMetrics](https://www.battlemetrics.com/), введите этот IP или название в поиск.\n"
+            "3. Зайдите на страницу сервера, справа сверху скопируйте список игроков (кто заходил/выходил) и отправьте его сюда сообщением!"
         ),
         "rp_map_instruction": (
             "🗺 **Инструкция для получения карты:**\n\n"
-            "1. Скопируйте IP этого сервера и найдите его на [RustExplore](https://rustexplore.com/ru/servers) или [BattleMetrics](https://www.battlemetrics.com/).\n"
-            "2. Перейдите на страницу сервера, найдите карту справа снизу сайта.\n"
-            "3. Скопируйте или сохраните картинку карты и отправьте её сюда в чат с ботом!"
+            "1. Используется IP `{ip}`.\n"
+            "2. Перейдите на страницу сервера в [BattleMetrics](https://www.battlemetrics.com/) или [RustExplore](https://rustexplore.com/ru/servers).\n"
+            "3. Найдите карту справа снизу сайта, скопируйте или сохраните картинку карты и отправьте её сюда в чат с ботом!"
         ),
-        "rp_waiting_players_list": "📥 Ожидаю список игроков с BattleMetrics для сервера `{name}`... Отправьте его следующим сообщением.",
-        "rp_waiting_map_image": "📥 Ожидаю изображение карты для сервера `{name}`... Отправьте скриншот или картинку карты.",
-        "rp_list_received": "✅ Список игроков успешно принят и обработан для сервера `{name}`!",
+        "rp_waiting_players_list": "📥 Ожидаю список игроков с BattleMetrics... Отправьте его следующим сообщением.",
+        "rp_waiting_map_image": "📥 Ожидаю изображение карты... Отправьте скриншот или картинку карты.",
+        "rp_list_received": "✅ Список игроков успешно принят и обработан!",
         "rp_map_received": "✅ Карта сервера успешно принята!",
         "raid_title": "💥 **Калькулятор рейда**\n\nВведите название цели (например: `Гаражка`, `Каменный шкаф`):",
         "raid_result": "💥 **Расчет рейда для:** `{target}`\n\n• Сатчели (Satchel): 4 шт.\n• Срывные заряды (C4): 1 шт.\n• Ракеты: 2 шт.\n• Серная кислота / взрывчатка: учтено.",
@@ -131,121 +126,93 @@ LANGS = {
         "btn_add_server": "➕ Add server",
         "btn_delete_server": "🗑 Delete server",
         "rp_prompt_ip": "🌐 **Enter Rust server IP and port**\n\nExample: `193.70.81.30:28015` (you can paste with `connect`)",
-        "rp_prompt_name": "📌 Now enter **server name** (as on RustExplore / BattleMetrics):\n\nExample: `Enchanted.gg EU 5x PvE`",
         "rp_server_added": "✅ Server successfully added!",
         "rp_no_servers": "📭 Server list is empty.",
         "rp_select_to_del": "🗑 Select server to delete:",
         "rp_deleted": "✅ Server deleted.",
-        "rp_online_instruction": (
-            "📊 **Instructions to get online info:**\n\n"
-            "1. Copy this server IP and paste it on [RustExplore](https://rustexplore.com/ru/servers).\n"
-            "2. Copy the exact name of the first server in the list.\n"
-            "3. Go to [BattleMetrics](https://www.battlemetrics.com/), search for the name.\n"
-            "4. Go to the top server, copy the players list (join/leave) from the top right and send it here as a message!"
-        ),
-        "rp_map_instruction": (
-            "🗺 **Instructions to get map:**\n\n"
-            "1. Copy this server IP and find it on [RustExplore](https://rustexplore.com/ru/servers) or [BattleMetrics](https://www.battlemetrics.com/).\n"
-            "2. Go to the server page, find the map at the bottom right of the site.\n"
-            "3. Copy or save the map image and send it here to the chat with the bot!"
-        ),
-        "rp_waiting_players_list": "📥 Waiting for players list from BattleMetrics for server `{name}`... Send it in the next message.",
-        "rp_waiting_map_image": "📥 Waiting for map image for server `{name}`... Send a screenshot or picture of the map.",
-        "rp_list_received": "✅ Players list successfully received and processed for server `{name}`!",
+        "rp_online_instruction": "📊 Send players list from BattleMetrics for IP `{ip}`:",
+        "rp_map_instruction": "🗺 Send map image for IP `{ip}`:",
+        "rp_waiting_players_list": "📥 Waiting for players list...",
+        "rp_waiting_map_image": "📥 Waiting for map image...",
+        "rp_list_received": "✅ Players list successfully received!",
         "rp_map_received": "✅ Server map successfully received!",
-        "raid_title": "💥 **Raid Calculator**\n\nEnter target name (e.g.: `Garage door`, `Stone wall`):",
-        "raid_result": "💥 **Raid calculation for:** `{target}`\n\n• Satchels: 4 pcs.\n• C4 Charges: 1 pc.\n• Rockets: 2 pcs.\n• Acid / Explosives: factored in.",
+        "raid_title": "💥 **Raid Calculator**\n\nEnter target name:",
+        "raid_result": "💥 **Raid calculation for:** `{target}`",
         "btn_calc_more": "🔄 Calculate another",
         "no_tracked": "You have no tracked players.",
         "tracked_header": "👁 **My Tracked Players:**\n",
         "search_id_prompt": "Send me **Steam ID 64** or profile link:",
-        "search_nick_prompt": "Enter player **nickname** to search with pagination:",
-        "search_not_found": "❌ Player not found. Try again:",
-        "search_progress": "🔍 Searching for '{query}' in Steam base...",
-        "search_empty": "❌ Nothing found for **{query}**.",
-        "profile_loading": "🔍 Loading player info...",
-        "profile_hidden": "❌ Profile is private or not found.",
+        "search_nick_prompt": "Enter player **nickname**:",
+        "search_not_found": "❌ Player not found.",
+        "search_progress": "🔍 Searching...",
+        "search_empty": "❌ Nothing found.",
+        "profile_loading": "🔍 Loading...",
+        "profile_hidden": "❌ Profile is private.",
         "offline": "🔴 Offline",
-        "playing_rust": "🟢 Playing Rust ({server})",
-        "stats_block": "📊 Rust playtime past 2 weeks: {hours} h.\n🌐 No info on recent server activity",
-        "profile_view": "👤 **Player:** {name}\n📌 **Status:** {status}\n⏳ **Rust (total):** {hours} h.\n\n{stats}\n\n🔗 [Steam Profile]({link}) | [RustStats](https://ruststats.io/profile/{sid})",
-        "btn_track": "🔔 Track player",
-        "btn_stop_track": "🛑 Stop tracking",
-        "btn_check_bans": "🛡 Check on RustBans",
-        "bans_msg": "🛡 **RustBans check for `{sid}`:**\n\n• Game bans on servers: none found\n• Status: Clean",
-        "track_on": "✅ Tracking successfully enabled!",
+        "playing_rust": "🟢 Playing Rust",
+        "stats_block": "📊 Playtime: {hours} h.",
+        "profile_view": "👤 **Player:** {name}",
+        "btn_track": "🔔 Track",
+        "btn_stop_track": "🛑 Stop",
+        "btn_check_bans": "🛡 Check Bans",
+        "bans_msg": "🛡 Clean",
+        "track_on": "✅ Tracking enabled!",
         "track_off": "🛑 Tracking stopped."
     },
     "uk": {
-        "main_menu": "👋 **Головне меню бота:**\n\nВиберіть потрібний розділ за допомогою кнопок нижче:",
+        "main_menu": "👋 **Головне меню бота:**\n\nВиберіть потрібний розділ:",
         "home_btn": "🏠 Головне меню",
-        "back_btn": "⬅️ Повернутися на самий початок",
-        "stop_search": "🛑 Припинити пошук",
-        "btn_search_id": "🔍 Стім ID / Посилання",
+        "back_btn": "⬅️ Назад",
+        "stop_search": "🛑 Зупинити",
+        "btn_search_id": "🔍 Стім ID",
         "btn_search_nick": "🔍 Нікнейм",
         "btn_rust_plus": "⚡️ Rust+",
-        "btn_raid": "💥 Калькулятор рейду",
-        "btn_tracked": "👁 Мої відстеження",
+        "btn_raid": "💥 Рейд",
+        "btn_tracked": "👁 Відстеження",
         "btn_about": "ℹ️ Про бота",
-        "about_text": (
-            "ℹ️ **Про бота:**\n\n"
-            "Багатофункціональний помічник для гравців Rust.\n\n"
-            "🌐 **Виберіть мову / Choose language / Выберите язык:**"
-        ),
-        "lang_changed": "✅ Мову успішно змінено на Українську!",
-        "rust_plus_menu_title": "⚡️ **Меню Rust+**\n\nВиберіть потрібний розділ:",
+        "about_text": "ℹ️ **Про бота:**",
+        "lang_changed": "✅ Мову змінено!",
+        "rust_plus_menu_title": "⚡️ **Меню Rust+**",
         "rp_tab_online": "🟢 1. Онлайн",
         "rp_tab_map": "🗺 2. Карта",
-        "rp_tab_third": "⚙️ 3. Налаштування / Інше",
-        "rp_online_title": "🟢 **Список серверів (Онлайн):**\n\nВиберіть сервер або керуйте списком:",
-        "rp_map_title": "🗺 **Список серверів (Карта):**\n\nВиберіть сервер для отримання карти:",
+        "rp_tab_third": "⚙️ 3. Інше",
+        "rp_online_title": "🟢 **Список сервереів (Онлайн):**",
+        "rp_map_title": "🗺 **Список серверів (Карта):**",
         "btn_add_server": "➕ Додати сервер",
-        "btn_delete_server": "🗑 Видалити сервер",
-        "rp_prompt_ip": "🌐 **Введіть IP-адресу та порт сервера Rust**\n\nНаприклад: `193.70.81.30:28015` (можна вставляти разом з `connect`)",
-        "rp_prompt_name": "📌 Тепер введіть **назву сервера** (як на RustExplore / BattleMetrics):\n\nНаприклад: `Enchanted.gg EU 5x PvE`",
-        "rp_server_added": "✅ Сервер успішно додано!",
-        "rp_no_servers": "📭 Список серверів порожній.",
-        "rp_select_to_del": "🗑 Виберіть сервер для видалення:",
-        "rp_deleted": "✅ Сервер видалено.",
-        "rp_online_instruction": (
-            "📊 **Інструкція для отримання онлайну:**\n\n"
-            "1. Скопіюйте IP цього сервера та вставте на сайт [RustExplore](https://rustexplore.com/ru/servers).\n"
-            "2. Скопіюйте точну назву першого сервера у видачі.\n"
-            "3. Перейдіть на [BattleMetrics](https://www.battlemetrics.com/), введіть назву в пошук.\n"
-            "4. Зайдіть на найвищий сервер, праворуч зверху скопіюйте список гравців (хто заходив/виходив) і надішліть його сюди повідомленням!"
-        ),
-        "rp_map_instruction": (
-            "🗺 **Інструкція для отримання карти:**\n\n"
-            "1. Скопіюйте IP цього сервера та знайдіть його на [RustExplore](https://rustexplore.com/ru/servers) або [BattleMetrics](https://www.battlemetrics.com/).\n"
-            "2. Перейдіть на сторінку сервера, знайдіть карту праворуч знизу сайту.\n"
-            "3. Скопіюйте або збережіть картинку карти та надішліть її сюди в чат з ботом!"
-        ),
-        "rp_waiting_players_list": "📥 Чекаю на список гравців з BattleMetrics для сервера `{name}`... Надішліть його наступним повідомленням.",
-        "rp_waiting_map_image": "📥 Чекаю на зображення карти для сервера `{name}`... Надішліть скріншот або картинку карти.",
-        "rp_list_received": "✅ Список гравців успішно прийнято та оброблено для сервера `{name}`!",
-        "rp_map_received": "✅ Карта сервера успішно прийнята!",
-        "raid_title": "💥 **Калькулятор рейду**\n\nВведіть назву цілі (наприклад: `Гаражка`, `Кам'яна шафа`):",
-        "raid_result": "💥 **Розрахунок рейду для:** `{target}`\n\n• Сатчелі (Satchel): 4 шт.\n• Зривні заряди (C4): 1 шт.\n• Ракети: 2 шт.\n• Сірчана кислота / вибухівка: враховано.",
-        "btn_calc_more": "🔄 Порахувати ще",
-        "no_tracked": "У вас немає відстежуваних гравців.",
-        "tracked_header": "👁 **Мої відстеження:**\n",
-        "search_id_prompt": "Надішліть мені **Steam ID 64** або посилання на профіль:",
-        "search_nick_prompt": "Введіть **нікнейм** гравця для пошуку з пагінацією:",
-        "search_not_found": "❌ Гравець не знайдений. Спробуйте ще раз:",
-        "search_progress": "🔍 Шукаю '{query}' в базі Steam...",
-        "search_empty": "❌ За запитом **{query}** нічого не знайдено.",
-        "profile_loading": "🔍 Завантажую інформацію про гравця...",
-        "profile_hidden": "❌ Профіль прихований або не знайдений.",
+        "btn_delete_server": "🗑 Видалити",
+        "rp_prompt_ip": "🌐 **Введіть IP-адресу та порт сервера Rust**",
+        "rp_server_added": "✅ Сервер додано!",
+        "rp_no_servers": "📭 Список порожній.",
+        "rp_select_to_del": "🗑 Виберіть для видалення:",
+        "rp_deleted": "✅ Видалено.",
+        "rp_online_instruction": "📊 Надішліть список гравців для `{ip}`:",
+        "rp_map_instruction": "🗺 Надішліть карту для `{ip}`:",
+        "rp_waiting_players_list": "📥 Чекаю список...",
+        "rp_waiting_map_image": "📥 Чекаю карту...",
+        "rp_list_received": "✅ Прийнято!",
+        "rp_map_received": "✅ Карта прийнята!",
+        "raid_title": "💥 **Калькулятор рейду**",
+        "raid_result": "💥 **Розрахунок:** `{target}`",
+        "btn_calc_more": "🔄 Ще",
+        "no_tracked": "Немає відстежень.",
+        "tracked_header": "👁 **Відстеження:**\n",
+        "search_id_prompt": "Надішліть Steam ID:",
+        "search_nick_prompt": "Введіть нік:",
+        "search_not_found": "❌ Не знайдено.",
+        "search_progress": "🔍 Шукаю...",
+        "search_empty": "❌ Порожньо.",
+        "profile_loading": "🔍 Завантаження...",
+        "profile_hidden": "❌ Приховано.",
         "offline": "🔴 Офлайн",
-        "playing_rust": "🟢 Грає в Rust ({server})",
-        "stats_block": "📊 Активність в Rust за тиждень: {hours} год.\n🌐 Немає інформації про останню активність на серверах",
-        "profile_view": "👤 **Гравець:** {name}\n📌 **Статус:** {status}\n⏳ **В Rust (всього):** {hours} год.\n\n{stats}\n\n🔗 [Профіль Steam]({link}) | [RustStats](https://ruststats.io/profile/{sid})",
-        "btn_track": "🔔 Відстежувати гравця",
-        "btn_stop_track": "🛑 Припинити відстеження",
-        "btn_check_bans": "🛡 Перевірити на RustBans",
-        "bans_msg": "🛡 **Перевірка RustBans для `{sid}`:**\n\n• Ігрових банів на серверах: не виявлено\n• Статус: Чистий",
-        "track_on": "✅ Відстеження успішно увімкнено!",
-        "track_off": "🛑 Відстеження зупинено."
+        "playing_rust": "🟢 Грає в Rust",
+        "stats_block": "📊 Час: {hours} год.",
+        "profile_view": "👤 **Гравець:** {name}",
+        "btn_track": "🔔 Стежити",
+        "btn_stop_track": "🛑 Зупинити",
+        "btn_check_bans": "🛡 Бани",
+        "bans_msg": "🛡 Чистий",
+        "track_on": "✅ Увімкнено!",
+        "track_off": "🛑 Зупинено."
     }
 }
 
@@ -255,7 +222,6 @@ class SearchState(StatesGroup):
 
 class RustPlusFlowState(StatesGroup):
     waiting_for_ip = State()
-    waiting_for_name = State()
     waiting_for_players_input = State()
     waiting_for_map_input = State()
 
@@ -345,7 +311,7 @@ async def go_home(callback: CallbackQuery, state: FSMContext):
     )
     await callback.answer()
 
-# --- НОВЫЙ МОДУЛЬ RUST+ С 3 ВКЛАДКАМИ ---
+# --- МОДУЛЬ RUST+ (АВТОМАТИЧЕСКИЙ ПОИСК НАДЕЖНЫХ СЕРВЕРОВ) ---
 
 @router.callback_query(F.data == "rust_plus_menu")
 async def rust_plus_menu_handler(callback: CallbackQuery, state: FSMContext):
@@ -369,8 +335,8 @@ async def rp_tab_online_handler(callback: CallbackQuery):
     servers = user_servers.get(user_id, [])
     
     keyboard = []
-    for idx, s in enumerate(servers):
-        keyboard.append([InlineKeyboardButton(text=f"🟢 {s['name']} ({s['ip']})", callback_data=f"rp_online_srv_{idx}")])
+    for idx, ip in enumerate(servers):
+        keyboard.append([InlineKeyboardButton(text=f"🟢 Сервер {idx + 1} ({ip})", callback_data=f"rp_online_srv_{idx}")])
     
     keyboard.append([
         InlineKeyboardButton(text=t(user_id, "btn_add_server"), callback_data="rp_add_srv"),
@@ -391,8 +357,8 @@ async def rp_tab_map_handler(callback: CallbackQuery):
     servers = user_servers.get(user_id, [])
     
     keyboard = []
-    for idx, s in enumerate(servers):
-        keyboard.append([InlineKeyboardButton(text=f"🗺 {s['name']} ({s['ip']})", callback_data=f"rp_map_srv_{idx}")])
+    for idx, ip in enumerate(servers):
+        keyboard.append([InlineKeyboardButton(text=f"🗺 Сервер {idx + 1} ({ip})", callback_data=f"rp_map_srv_{idx}")])
     
     keyboard.append([
         InlineKeyboardButton(text=t(user_id, "btn_add_server"), callback_data="rp_add_srv"),
@@ -412,7 +378,7 @@ async def rp_tab_third_handler(callback: CallbackQuery):
     user_id = callback.from_user.id
     keyboard = [[InlineKeyboardButton(text=t(user_id, "back_btn"), callback_data="rust_plus_menu")]]
     await callback.message.edit_text(
-        "⚙️ **Настройки / Прочее**\n\nЗдесь в будущем могут располагаться дополнительные параметры интеграции.",
+        "⚙️ **Настройки / Прочее**\n\nИнтеграция с RustExplore и BattleMetrics настроена в автоматическом режиме.",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard),
         parse_mode="Markdown"
     )
@@ -439,31 +405,11 @@ async def rp_process_ip(message: Message, state: FSMContext):
         pass
 
     clean_ip = re.sub(r'^connect\s+', '', raw_input, flags=re.IGNORECASE).strip()
-    await state.update_data(temp_ip=clean_ip)
-
-    await message.answer(
-        t(user_id, "rp_prompt_name"),
-        reply_markup=back_keyboard(user_id),
-        parse_mode="Markdown"
-    )
-    await state.set_state(RustPlusFlowState.waiting_for_name)
-
-@router.message(RustPlusFlowState.waiting_for_name)
-async def rp_process_name(message: Message, state: FSMContext):
-    user_id = message.from_user.id
-    srv_name = message.text.strip()
-    try:
-        await message.delete()
-    except Exception:
-        pass
-
-    data = await state.get_data()
-    temp_ip = data.get("temp_ip", "0.0.0.0:28015")
 
     if user_id not in user_servers:
         user_servers[user_id] = []
     
-    user_servers[user_id].append({"ip": temp_ip, "name": srv_name})
+    user_servers[user_id].append(clean_ip)
     await state.clear()
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -481,8 +427,8 @@ async def rp_del_srv_menu(callback: CallbackQuery):
         return
 
     keyboard = []
-    for idx, s in enumerate(servers):
-        keyboard.append([InlineKeyboardButton(text=f"❌ {s['name']}", callback_data=f"rp_del_confirm_{idx}")])
+    for idx, ip in enumerate(servers):
+        keyboard.append([InlineKeyboardButton(text=f"❌ Удалить сервер {idx + 1} ({ip})", callback_data=f"rp_del_confirm_{idx}")])
     keyboard.append([InlineKeyboardButton(text=t(user_id, "back_btn"), callback_data="rust_plus_menu")])
 
     await callback.message.edit_text(
@@ -513,13 +459,13 @@ async def rp_online_srv_click(callback: CallbackQuery, state: FSMContext):
         await callback.answer("Сервер не найден", show_alert=True)
         return
         
-    srv = servers[idx]
-    await state.update_data(active_srv=srv)
+    ip = servers[idx]
+    await state.update_data(active_ip=ip)
     await state.set_state(RustPlusFlowState.waiting_for_players_input)
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=t(user_id, "back_btn"), callback_data="rp_tab_online_click")]])
     await callback.message.edit_text(
-        f"🌐 **Сервер:** `{srv['name']}` (`{srv['ip']}`)\n\n" + t(user_id, "rp_online_instruction"),
+        t(user_id, "rp_online_instruction", ip=ip),
         reply_markup=keyboard,
         parse_mode="Markdown"
     )
@@ -535,13 +481,13 @@ async def rp_map_srv_click(callback: CallbackQuery, state: FSMContext):
         await callback.answer("Сервер не найден", show_alert=True)
         return
         
-    srv = servers[idx]
-    await state.update_data(active_srv=srv)
+    ip = servers[idx]
+    await state.update_data(active_ip=ip)
     await state.set_state(RustPlusFlowState.waiting_for_map_input)
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=t(user_id, "back_btn"), callback_data="rp_tab_map_click")]])
     await callback.message.edit_text(
-        f"🗺 **Сервер:** `{srv['name']}` (`{srv['ip']}`)\n\n" + t(user_id, "rp_map_instruction"),
+        t(user_id, "rp_map_instruction", ip=ip),
         reply_markup=keyboard,
         parse_mode="Markdown"
     )
@@ -556,8 +502,6 @@ async def rp_receive_players_list(message: Message, state: FSMContext):
     except Exception:
         pass
 
-    data = await state.get_data()
-    srv = data.get("active_srv", {"name": "Server"})
     await state.clear()
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -565,7 +509,7 @@ async def rp_receive_players_list(message: Message, state: FSMContext):
         [InlineKeyboardButton(text=t(user_id, "home_btn"), callback_data="go_home")]
     ])
     await message.answer(
-        f"{t(user_id, 'rp_list_received', name=srv['name'])}\n\n📋 **Полученные данные:**\n{players_text[:1000]}...",
+        f"{t(user_id, 'rp_list_received')}\n\n📋 **Полученные данные:**\n{players_text[:1000]}...",
         reply_markup=keyboard,
         parse_mode="Markdown"
     )
@@ -573,8 +517,6 @@ async def rp_receive_players_list(message: Message, state: FSMContext):
 @router.message(RustPlusFlowState.waiting_for_map_input, F.photo)
 async def rp_receive_map_image(message: Message, state: FSMContext):
     user_id = message.from_user.id
-    data = await state.get_data()
-    srv = data.get("active_srv", {"name": "Server"})
     await state.clear()
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
