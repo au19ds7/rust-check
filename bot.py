@@ -14,24 +14,29 @@ bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 router = Router()
 
-# Хранилище активных задач отслеживания: {user_id: {steam_id: task}}
 active_trackers = {}
-# Список отслеживаемых игроков для меню: {user_id: {steam_id: player_name}}
 tracked_players_list = {}
 
 class SearchState(StatesGroup):
     waiting_for_steam_id = State()
+    waiting_for_nickname = State()
 
 def main_keyboard(user_id):
     keyboard = [
-        [InlineKeyboardButton(text="🔍 Найти игрока Rust", callback_data="start_search")]
+        [
+            InlineKeyboardButton(text="🔍 Стим", callback_data="start_search_id"),
+            InlineKeyboardButton(text="🔍 Ник", callback_data="start_search_nick")
+        ],
+        [
+            InlineKeyboardButton(text="👁 Мои отслеживания", callback_data="show_tracked_list")
+        ],
+        [
+            InlineKeyboardButton(text="🧱 Калькулятор рейда", callback_data="raid_calc")
+        ],
+        [
+            InlineKeyboardButton(text="ℹ️ О боте", callback_data="about_bot")
+        ]
     ]
-    
-    # Добавляем список отслеживаемых игроков в главное меню, если они есть
-    if user_id in tracked_players_list and tracked_players_list[user_id]:
-        keyboard.append([InlineKeyboardButton(text="📋 Список отслеживаемых игроков", callback_data="show_tracked_list")])
-        
-    keyboard.append([InlineKeyboardButton(text="ℹ️ О боте", callback_data="about_bot")])
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 def back_keyboard(user_id):
@@ -54,8 +59,8 @@ def result_keyboard(steam_id, is_tracking=False):
 async def cmd_start(message: Message, state: FSMContext):
     await state.clear()
     await message.answer(
-        "Привет! Я бот для поиска и отслеживания игроков **Rust** по Steam ID или кастомной ссылке.\n\n"
-        "Нажми кнопку ниже, чтобы начать поиск:",
+        "Полный список команд: /help.\n\n"
+        "Если возникнут вопросы, пишите: @allfytiq",
         reply_markup=main_keyboard(message.from_user.id),
         parse_mode="Markdown"
     )
@@ -63,16 +68,32 @@ async def cmd_start(message: Message, state: FSMContext):
 @router.callback_query(F.data == "go_home")
 async def go_home(callback: CallbackQuery, state: FSMContext):
     await state.clear()
+    text = (
+        "Полный список команд: /help.\n\n"
+        "Если возникнут вопросы, пишите: @allfytiq"
+    )
     try:
         await callback.message.edit_text(
-            "Главное меню. Выберите действие:",
-            reply_markup=main_keyboard(callback.from_user.id)
+            text,
+            reply_markup=main_keyboard(callback.from_user.id),
+            parse_mode="Markdown"
         )
     except Exception:
         await callback.message.answer(
-            "Главное меню. Выберите действие:",
-            reply_markup=main_keyboard(callback.from_user.id)
+            text,
+            reply_markup=main_keyboard(callback.from_user.id),
+            parse_mode="Markdown"
         )
+    await callback.answer()
+
+@router.callback_query(F.data == "raid_calc")
+async def raid_calc_handler(callback: CallbackQuery):
+    await callback.message.edit_text(
+        "🧱 **Калькулятор рейда:**\n\n"
+        "Раздел находится в разработке.",
+        reply_markup=back_keyboard(callback.from_user.id),
+        parse_mode="Markdown"
+    )
     await callback.answer()
 
 @router.callback_query(F.data == "show_tracked_list")
@@ -84,12 +105,36 @@ async def show_tracked_list(callback: CallbackQuery):
         await callback.answer("У вас нет отслеживаемых игроков.", show_alert=True)
         return
         
-    text = "📋 **Список отслеживаемых игроков:**\n\n"
+    text = "👁 **Мои отслеживания:**\n\n"
     keyboard = []
-    for s_id, name in players.items():
-        text += f"• {name} (ID: `{s_id}`)\n"
-        keyboard.append([InlineKeyboardButton(text=f"❌ Удалить {name}", callback_data=f"stop_track_{s_id}")])
-        
+    
+    async with aiohttp.ClientSession() as session:
+        for s_id in list(players.keys()):
+            # Проверяем статус игрока в реальном времени для отображения индикатора
+            url = f"https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v0002/?key={STEAM_API_KEY}&steamids={s_id}"
+            status_icon = "🔴"
+            name = players[s_id]
+            try:
+                async with session.get(url) as resp:
+                    data = await resp.json()
+                    pl_list = data.get("response", {}).get("players", [])
+                    if pl_list:
+                        p = pl_list[0]
+                        name = p.get("personaname", name)
+                        gameid = p.get("gameid")
+                        game_ext_info = p.get("gameextrainfo", "")
+                        if gameid == "252490" or "Rust" in game_ext_info:
+                            status_icon = "🟢"
+            except Exception:
+                pass
+            
+            text.append(f"• {name} {status_icon} (ID: `{s_id}`)\n")
+            keyboard.append([InlineKeyboardButton(text=f"❌ Удалить {name}", callback_data=f"stop_track_{s_id}")])
+            
+    # Превращаем text из списка в строку если нужно, или собираем через join
+    if isinstance(text, list):
+        text = "👁 **Мои отслеживания:**\n\n" + "".join(text)
+
     keyboard.append([InlineKeyboardButton(text="⬅️ Вернуться на самое начало", callback_data="go_home")])
     
     await callback.message.edit_text(
@@ -103,25 +148,35 @@ async def show_tracked_list(callback: CallbackQuery):
 async def about_bot(callback: CallbackQuery):
     await callback.message.edit_text(
         "ℹ️ **О боте:**\n\n"
-        "Этот бот создан для проверки игроков в **Rust** по Steam ID, кастомным ссылкам, статуса и отслеживания в реальном времени.\n\n"
+        "Этот бот создан для проверки игроков в **Rust** по Steam ID, нику, а также для отслеживания в реальном времени.\n\n"
         "👨‍💻 **Создатель:** Telegram: @allfytiq",
         reply_markup=back_keyboard(callback.from_user.id),
         parse_mode="Markdown"
     )
     await callback.answer()
 
-@router.callback_query(F.data == "start_search")
-async def start_search(callback: CallbackQuery, state: FSMContext):
+@router.callback_query(F.data == "start_search_id")
+async def start_search_id(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text(
-        "Отправьте мне **Steam ID** (например, `76561198000000000`) или **кастомный ник/ссылку** (например, `numberonerust`):",
+        "Отправьте мне **Steam ID** (например, `76561198000000000`):",
         reply_markup=back_keyboard(callback.from_user.id),
         parse_mode="Markdown"
     )
     await state.set_state(SearchState.waiting_for_steam_id)
     await callback.answer()
 
+@router.callback_query(F.data == "start_search_nick")
+async def start_search_nick(callback: CallbackQuery, state: FSMContext):
+    await callback.message.edit_text(
+        "Отправьте мне **ник игрока** для поиска:",
+        reply_markup=back_keyboard(callback.from_user.id),
+        parse_mode="Markdown"
+    )
+    await state.set_state(SearchState.waiting_for_nickname)
+    await callback.answer()
+
 @router.message(SearchState.waiting_for_steam_id)
-async def process_steam_id(message: Message, state: FSMContext):
+async def process_steam_id_input(message: Message, state: FSMContext):
     user_input = message.text.strip()
     
     if "steamcommunity.com/id/" in user_input:
@@ -129,29 +184,74 @@ async def process_steam_id(message: Message, state: FSMContext):
     elif "steamcommunity.com/profiles/" in user_input:
         user_input = user_input.rstrip("/").split("/")[-1]
 
-    msg = await message.answer("🔍 Ищу информацию об игроке в Steam...")
+    if not user_input.isdigit() or len(user_input) != 17:
+        await message.answer("❌ Неверный формат Steam ID. ID должен состоять из 17 цифр.", reply_markup=back_keyboard(message.from_user.id))
+        await state.clear()
+        return
+
+    await show_player_profile(message, user_input, state)
+
+@router.message(SearchState.waiting_for_nickname)
+async def process_nickname_input(message: Message, state: FSMContext):
+    nickname = message.text.strip()
+    msg = await message.answer("🔍 Ищу игроков по нику...")
+
+    # Steam Web API не имеет прямого эндпоинта для текстового поиска по никам без сторонних сервисов или WebAPI ресолверов, 
+    # но можно использовать Steam Community Web search через асинхронный запрос или поиск по кастомным ссылкам/ваниту.
+    # Для стабильности сделаем поиск через steamcommunity.com/search/render/
+    search_url = f"https://steamcommunity.com/search/render/?text={nickname}&category=users&json=1"
 
     async with aiohttp.ClientSession() as session:
-        steam_id = None
+        async with session.get(search_url) as resp:
+            if resp.status != 200:
+                await msg.edit_text("❌ Ошибка при поиске игроков.", reply_markup=back_keyboard(message.from_user.id))
+                await state.clear()
+                return
+            data = await resp.json()
+            results = data.get("results", [])
 
-        if user_input.isdigit() and len(user_input) == 17:
-            steam_id = user_input
-        else:
-            vanity_url = f"https://api.steampowered.com/ISteamUser/ResolveVanityURL/v0001/?key={STEAM_API_KEY}&vanityurl={user_input}"
-            async with session.get(vanity_url) as resp:
-                vanity_data = await resp.json()
-                response_block = vanity_data.get("response", {})
-                if response_block.get("success") == 1:
-                    steam_id = response_block.get("steamid")
+            if not results:
+                await msg.edit_text("❌ Игроки с таким ником не найдены.", reply_markup=back_keyboard(message.from_user.id))
+                await state.clear()
+                return
 
-        if not steam_id:
+            if len(results) == 1:
+                steam_id = results.get("steamid")
+                await msg.delete()
+                # Создаем фейковое сообщение для вывода профиля
+                message.text = steam_id
+                await show_player_profile(message, steam_id, state)
+                return
+
+            # Если игроков несколько, выводим список с выбором
+            keyboard = []
+            for item in results[:10]: # Ограничим до 10 вариантов
+                s_id = item.get("steamid")
+                name = item.get("name")
+                keyboard.append([InlineKeyboardButton(text=name, callback_data=f"select_player_{s_id}")])
+            
+            keyboard.append([InlineKeyboardButton(text="⬅️ Вернуться на самое начало", callback_data="go_home")])
+
             await msg.edit_text(
-                "❌ Игрок не найден. Проверьте правильность введенного Steam ID или кастомного имени:",
-                reply_markup=back_keyboard(message.from_user.id)
+                f"🔍 Найдено несколько игроков по запросу **{nickname}** Выберите нужного:",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard),
+                parse_mode="Markdown"
             )
             await state.clear()
-            return
 
+@router.callback_query(F.data.startswith("select_player_"))
+async def select_player_callback(callback: CallbackQuery, state: FSMContext):
+    steam_id = callback.data.split("_")[2]
+    await callback.message.delete()
+    # Создаем объект сообщения для передачи в функцию профиля
+    callback.message.text = steam_id
+    await show_player_profile(callback.message, steam_id, state)
+    await callback.answer()
+
+async def show_player_profile(message: Message, steam_id: str, state: FSMContext):
+    msg = await message.answer("🔍 Загружаю информацию об игроке...")
+
+    async with aiohttp.ClientSession() as session:
         profile_url = f"https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v0002/?key={STEAM_API_KEY}&steamids={steam_id}"
         async with session.get(profile_url) as resp:
             data = await resp.json()
@@ -244,7 +344,6 @@ async def start_track_player(callback: CallbackQuery):
         await callback.answer("Вы уже отслеживаете этого игрока!", show_alert=True)
         return
 
-    # Получим ник игрока для красивого списка
     player_name = steam_id
     async with aiohttp.ClientSession() as session:
         url = f"https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v0002/?key={STEAM_API_KEY}&steamids={steam_id}"
@@ -278,10 +377,10 @@ async def start_track_player(callback: CallbackQuery):
                             if is_in_rust and not last_in_rust:
                                 last_in_rust = True
                                 last_server = current_server
-                                await bot.send_message(user_id, f"🚨 Игрок **{p_name}** зашел на сервер: `{current_server}`!", parse_mode="Markdown")
+                                await bot.send_message(user_id, f"🚨 Игрок **{p_name}** 🟢 зашел на сервер: `{current_server}`!", parse_mode="Markdown")
                             elif not is_in_rust and last_in_rust:
                                 last_in_rust = False
-                                await bot.send_message(user_id, f"💤 Игрок **{p_name}** вышел из игры Rust (сервер: `{last_server}`)", parse_mode="Markdown")
+                                await bot.send_message(user_id, f"💤 Игрок **{p_name}** 🔴 вышел из игры Rust (сервер: `{last_server}`)", parse_mode="Markdown")
                 except Exception:
                     pass
                 await asyncio.sleep(60)
@@ -291,7 +390,6 @@ async def start_track_player(callback: CallbackQuery):
 
     await callback.answer("✅ Отслеживание успешно включено!", show_alert=True)
     
-    # Обновляем клавиатуру на сообщение
     try:
         await callback.message.edit_reply_markup(reply_markup=result_keyboard(steam_id, is_tracking=True))
     except Exception:
@@ -311,9 +409,8 @@ async def stop_track_player(callback: CallbackQuery):
 
     await callback.answer("🛑 Отслеживание прекращено.", show_alert=True)
     
-    # Если это было из меню списков, возвращаем в главное меню или обновляем
-    if callback.message.text and "Список отслеживаемых" in callback.message.text:
-        await go_home(callback, None)
+    if callback.message.text and "Мои отслеживания" in callback.message.text:
+        await show_tracked_list(callback)
     else:
         try:
             await callback.message.edit_reply_markup(reply_markup=result_keyboard(steam_id, is_tracking=False))
