@@ -105,22 +105,21 @@ async def show_tracked_list(callback: CallbackQuery):
         await callback.answer("У вас нет отслеживаемых игроков.", show_alert=True)
         return
         
-    text = "👁 **Мои отслеживания:**\n\n"
     keyboard = []
+    text_lines = ["👁 **Мои отслеживания:**\n"]
     
     async with aiohttp.ClientSession() as session:
-        for s_id in list(players.keys()):
-            # Проверяем статус игрока в реальном времени для отображения индикатора
+        for s_id, base_name in players.items():
             url = f"https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v0002/?key={STEAM_API_KEY}&steamids={s_id}"
             status_icon = "🔴"
-            name = players[s_id]
+            name = base_name
             try:
                 async with session.get(url) as resp:
                     data = await resp.json()
                     pl_list = data.get("response", {}).get("players", [])
                     if pl_list:
                         p = pl_list[0]
-                        name = p.get("personaname", name)
+                        name = p.get("personaname", base_name)
                         gameid = p.get("gameid")
                         game_ext_info = p.get("gameextrainfo", "")
                         if gameid == "252490" or "Rust" in game_ext_info:
@@ -128,17 +127,13 @@ async def show_tracked_list(callback: CallbackQuery):
             except Exception:
                 pass
             
-            text.append(f"• {name} {status_icon} (ID: `{s_id}`)\n")
+            text_lines.append(f"• {name} {status_icon} (ID: `{s_id}`)")
             keyboard.append([InlineKeyboardButton(text=f"❌ Удалить {name}", callback_data=f"stop_track_{s_id}")])
             
-    # Превращаем text из списка в строку если нужно, или собираем через join
-    if isinstance(text, list):
-        text = "👁 **Мои отслеживания:**\n\n" + "".join(text)
-
     keyboard.append([InlineKeyboardButton(text="⬅️ Вернуться на самое начало", callback_data="go_home")])
     
     await callback.message.edit_text(
-        text,
+        "\n".join(text_lines),
         reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard),
         parse_mode="Markdown"
     )
@@ -196,9 +191,6 @@ async def process_nickname_input(message: Message, state: FSMContext):
     nickname = message.text.strip()
     msg = await message.answer("🔍 Ищу игроков по нику...")
 
-    # Steam Web API не имеет прямого эндпоинта для текстового поиска по никам без сторонних сервисов или WebAPI ресолверов, 
-    # но можно использовать Steam Community Web search через асинхронный запрос или поиск по кастомным ссылкам/ваниту.
-    # Для стабильности сделаем поиск через steamcommunity.com/search/render/
     search_url = f"https://steamcommunity.com/search/render/?text={nickname}&category=users&json=1"
 
     async with aiohttp.ClientSession() as session:
@@ -208,7 +200,7 @@ async def process_nickname_input(message: Message, state: FSMContext):
                 await state.clear()
                 return
             data = await resp.json()
-            results = data.get("results", [])
+            results = data if isinstance(data, list) else data.get("results", [])
 
             if not results:
                 await msg.edit_text("❌ Игроки с таким ником не найдены.", reply_markup=back_keyboard(message.from_user.id))
@@ -218,14 +210,11 @@ async def process_nickname_input(message: Message, state: FSMContext):
             if len(results) == 1:
                 steam_id = results.get("steamid")
                 await msg.delete()
-                # Создаем фейковое сообщение для вывода профиля
-                message.text = steam_id
                 await show_player_profile(message, steam_id, state)
                 return
 
-            # Если игроков несколько, выводим список с выбором
             keyboard = []
-            for item in results[:10]: # Ограничим до 10 вариантов
+            for item in results[:10]:
                 s_id = item.get("steamid")
                 name = item.get("name")
                 keyboard.append([InlineKeyboardButton(text=name, callback_data=f"select_player_{s_id}")])
@@ -233,7 +222,7 @@ async def process_nickname_input(message: Message, state: FSMContext):
             keyboard.append([InlineKeyboardButton(text="⬅️ Вернуться на самое начало", callback_data="go_home")])
 
             await msg.edit_text(
-                f"🔍 Найдено несколько игроков по запросу **{nickname}** Выберите нужного:",
+                f"🔍 Найдено несколько игроков по запросу **{nickname}**. Выберите нужного:",
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard),
                 parse_mode="Markdown"
             )
@@ -242,14 +231,15 @@ async def process_nickname_input(message: Message, state: FSMContext):
 @router.callback_query(F.data.startswith("select_player_"))
 async def select_player_callback(callback: CallbackQuery, state: FSMContext):
     steam_id = callback.data.split("_")[2]
-    await callback.message.delete()
-    # Создаем объект сообщения для передачи в функцию профиля
-    callback.message.text = steam_id
-    await show_player_profile(callback.message, steam_id, state)
+    await show_player_profile(callback.message, steam_id, state, edit_message=True)
     await callback.answer()
 
-async def show_player_profile(message: Message, steam_id: str, state: FSMContext):
-    msg = await message.answer("🔍 Загружаю информацию об игроке...")
+async def show_player_profile(message: Message, steam_id: str, state: FSMContext, edit_message: bool = False):
+    if not edit_message:
+        msg = await message.answer("🔍 Загружаю информацию об игроке...")
+    else:
+        msg = message
+        await msg.edit_text("🔍 Загружаю информацию об игроке...")
 
     async with aiohttp.ClientSession() as session:
         profile_url = f"https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v0002/?key={STEAM_API_KEY}&steamids={steam_id}"
@@ -258,11 +248,11 @@ async def show_player_profile(message: Message, steam_id: str, state: FSMContext
             players = data.get("response", {}).get("players", [])
             
             if not players:
-                await msg.edit_text("❌ Профиль игрока скрыт или не найден.", reply_markup=back_keyboard(message.from_user.id))
+                await msg.edit_text("❌ Профиль игрока скрыт или не найден.", reply_markup=back_keyboard(message.chat.id))
                 await state.clear()
                 return
             
-            player = players[0]
+            player = players
             name = player.get("personaname", "Неизвестно")
             profile_link = player.get("profileurl", "")
             gameid = player.get("gameid")
@@ -317,16 +307,24 @@ async def show_player_profile(message: Message, steam_id: str, state: FSMContext
             f"• [RustStats.io]({ruststats_link})"
         )
 
-        user_id = message.from_user.id
+        user_id = message.chat.id
         is_tracked = user_id in active_trackers and steam_id in active_trackers[user_id]
 
-        await msg.delete()
-        await message.answer(
-            response_text,
-            reply_markup=result_keyboard(steam_id, is_tracking=is_tracked),
-            parse_mode="Markdown",
-            disable_web_page_preview=True
-        )
+        if edit_message:
+            await msg.edit_text(
+                response_text,
+                reply_markup=result_keyboard(steam_id, is_tracking=is_tracked),
+                parse_mode="Markdown",
+                disable_web_page_preview=True
+            )
+        else:
+            await msg.delete()
+            await message.answer(
+                response_text,
+                reply_markup=result_keyboard(steam_id, is_tracking=is_tracked),
+                parse_mode="Markdown",
+                disable_web_page_preview=True
+            )
     
     await state.clear()
 
