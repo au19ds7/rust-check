@@ -171,7 +171,7 @@ async def start_search_id(callback: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data == "start_search_nick")
 async def start_search_nick(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text(
-        "Отправьте мне **ник игрока** для поиска:",
+        "Отправьте мне **ник или кастомный ID игрока** для поиска:",
         reply_markup=back_keyboard(callback.from_user.id),
         parse_mode="Markdown"
     )
@@ -204,10 +204,30 @@ async def process_steam_id_input(message: Message, state: FSMContext):
 
 @router.message(SearchState.waiting_for_nickname)
 async def process_nickname_input(message: Message, state: FSMContext):
-    nickname = message.text.strip()
-    msg = await message.answer("🔍 Ищу игроков по нику...")
+    query = message.text.strip()
+    
+    # Очищаем ввод на случай, если пользователь скинул полноценную ссылку вида steamcommunity.com/id/numberonerust
+    if "steamcommunity.com/id/" in query:
+        query = query.rstrip("/").split("/")[-1]
+    elif "steamcommunity.com/profiles/" in query:
+        query = query.rstrip("/").split("/")[-1]
 
-    search_url = f"https://steamcommunity.com/search/users/?text={quote(nickname)}&l=russian"
+    msg = await message.answer("🔍 Ищу игроков...")
+
+    # Сначала проверяем, не является ли запрос кастомным ID (vanity url) вроде "numberonerust"
+    async with aiohttp.ClientSession() as session:
+        vanity_url = f"https://api.steampowered.com/ISteamUser/ResolveVanityURL/v0001/?key={STEAM_API_KEY}&vanityurl={query}"
+        async with session.get(vanity_url) as resp:
+            data = await resp.json()
+            response_block = data.get("response", {})
+            if response_block.get("success") == 1:
+                steam_id = response_block.get("steamid")
+                await msg.delete()
+                await show_player_profile(message, steam_id, state)
+                return
+
+    # Если через API кастомный ID не нашелся, запускаем стандартный поиск по нику через парсинг страницы Steam
+    search_url = f"https://steamcommunity.com/search/users/?text={quote(query)}&l=russian"
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
 
     async with aiohttp.ClientSession() as session:
@@ -249,12 +269,12 @@ async def process_nickname_input(message: Message, state: FSMContext):
             found_players.append({"steamid": steam_id, "name": name})
 
     if not found_players:
-        await msg.edit_text("❌ Игроки с таким ником не найдены.", reply_markup=back_keyboard(message.chat.id))
+        await msg.edit_text("❌ Игроки с таким ником или ID не найдены.", reply_markup=back_keyboard(message.chat.id))
         await state.clear()
         return
 
     user_id = message.chat.id
-    search_cache[user_id] = {"players": found_players, "query": nickname}
+    search_cache[user_id] = {"players": found_players, "query": query}
 
     await state.clear()
     await send_search_page(msg, user_id, page=0, edit=True)
@@ -291,7 +311,7 @@ async def send_search_page(msg: Message, user_id: int, page: int = 0, edit: bool
 
     keyboard.append([InlineKeyboardButton(text="⬅️ Вернуться на самое начало", callback_data="go_home")])
 
-    text = f"🔍 Найдено игроков по запросу **{nickname}** (Страница {page + 1} из {total_pages}):"
+    text = f"🔍 Найдено по запросу **{nickname}** (Страница {page + 1} из {total_pages}):"
     
     markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
     if edit:
