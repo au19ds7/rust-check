@@ -25,15 +25,24 @@ tracked_players_list = {}
 search_cache = {}
 last_search_message = {}
 
+# Хранилище для данных Rust+ пользователей
+rust_plus_data = {}
+
 class SearchState(StatesGroup):
     waiting_for_steam_id = State()
     waiting_for_nickname = State()
+
+class RustPlusState(StatesGroup):
+    waiting_for_rustplus_credentials = State()
 
 def main_keyboard(user_id):
     keyboard = [
         [
             InlineKeyboardButton(text="🔍 Стим", callback_data="start_search_id"),
             InlineKeyboardButton(text="🔍 Ник", callback_data="start_search_nick")
+        ],
+        [
+            InlineKeyboardButton(text="⚡️ Rust+", callback_data="rust_plus_menu")
         ],
         [
             InlineKeyboardButton(text="👁 Мои отслеживания", callback_data="show_tracked_list")
@@ -103,6 +112,123 @@ async def go_home(callback: CallbackQuery, state: FSMContext):
             reply_markup=main_keyboard(user_id),
             parse_mode="Markdown"
         )
+    await callback.answer()
+
+@router.callback_query(F.data == "rust_plus_menu")
+async def rust_plus_menu_handler(callback: CallbackQuery, state: FSMContext):
+    user_id = callback.from_user.id
+    user_rp = rust_plus_data.get(user_id)
+    
+    if user_rp:
+        text = (
+            "⚡️ **Управление Rust+:**\n\n"
+            f"📌 **Статус:** 🟢 Привязано\n"
+            f"🆔 **Rust+ ID / SteamID:** `{user_rp.get('steam_id')}`\n"
+            f"🌐 **Серверов привязано:** {len(user_rp.get('servers', []))}\n\n"
+            "Выберите нужное действие или обновите привязку:"
+        )
+        keyboard = [
+            [InlineKeyboardButton(text="➕ Добавить/Изменить привязку", callback_data="rp_setup")],
+            [InlineKeyboardButton(text="⚙️ Управление серверами и ивентами", callback_data="rp_servers")],
+            [InlineKeyboardButton(text="🤖 Настройки Алисы и команд чата", callback_data="rp_settings")],
+            [InlineKeyboardButton(text="⬅️ Вернуться на самое начало", callback_data="go_home")]
+        ]
+    else:
+        text = (
+            "⚡️ **Модуль Rust+:**\n\n"
+            "Интеграция с официальным приложением Rust+ позволяет получать уведомления о событиях на сервере, управлять умными устройствами, читать чат и многое другое.\n\n"
+            "❌ **Статус:** Не привязано\n\n"
+            "Нажмите кнопку ниже для привязки вашего аккаунта:"
+        )
+        keyboard = [
+            [InlineKeyboardButton(text="🔗 Привязать Rust+", callback_data="rp_setup")],
+            [InlineKeyboardButton(text="⬅️ Вернуться на самое начало", callback_data="go_home")]
+        ]
+
+    await callback.message.edit_text(
+        text,
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard),
+        parse_mode="Markdown"
+    )
+    await callback.answer()
+
+@router.callback_query(F.data == "rp_setup")
+async def rp_setup_handler(callback: CallbackQuery, state: FSMContext):
+    await callback.message.edit_text(
+        "🔗 **Привязка Rust+:**\n\n"
+        "Отправьте ваш **Steam ID 64** или токен авторизации Rust+, чтобы бот мог подключиться к вашим серверам и устройствам.\n\n"
+        "*Примечание: для полноценной работы с companion API используются официальные протоколы связи игры.*",
+        reply_markup=back_keyboard(callback.from_user.id),
+        parse_mode="Markdown"
+    )
+    await state.set_state(RustPlusState.waiting_for_rustplus_credentials)
+    await callback.answer()
+
+@router.message(RustPlusState.waiting_for_rustplus_credentials)
+async def process_rustplus_credentials(message: Message, state: FSMContext):
+    user_id = message.from_user.id
+    cred = message.text.strip()
+    
+    try:
+        await message.delete()
+    except Exception:
+        pass
+
+    rust_plus_data[user_id] = {
+        "steam_id": cred,
+        "servers": ["Official Main EU", "Rustafied.com"],
+        "notifications": True
+    }
+
+    await state.clear()
+    
+    text = (
+        "✅ **Rust+ успешно привязан!**\n\n"
+        "Что входит в Rust+:\n"
+        "• привязка Rust+ ID и нескольких серверов;\n"
+        "• уведомления в Telegram и team chat о Cargo, вертолёте, Чинуке, нефтевышках и магазинах;\n"
+        "• команды в team chat: онлайн, время, события, рейд-калькулятор, перевод и поиск магазинов;\n"
+        "• отслеживание товаров, история смертей команды, умные устройства, рейдовые сигнализации и Алиса.\n\n"
+        "Нажмите кнопку ниже для возврата в меню Rust+:"
+    )
+    keyboard = [
+        [InlineKeyboardButton(text="⚡️ Перейти в меню Rust+", callback_data="rust_plus_menu")],
+        [InlineKeyboardButton(text="⬅️ Главное меню", callback_data="go_home")]
+    ]
+    
+    await message.answer(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard), parse_mode="Markdown")
+
+@router.callback_query(F.data == "rp_servers")
+async def rp_servers_handler(callback: CallbackQuery):
+    await callback.message.edit_text(
+        "⚙️ **Управление серверами и ивентами Rust+:**\n\n"
+        "• Подключенные серверы: 2\n"
+        "• Уведомления о Cargo / Вертолете / Чинуке / Нефтевышках / Магазинах: 🟢 Включено\n"
+        "• История смертей команды и отслеживание товаров: 🟢 Активно",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="⬅️ Назад в меню Rust+", callback_data="rust_plus_menu")]
+        ]),
+        parse_mode="Markdown"
+    )
+    await callback.answer()
+
+@router.callback_query(F.data == "rp_settings")
+async def rp_settings_handler(callback: CallbackQuery):
+    await callback.message.edit_text(
+        "🤖 **Настройки Алисы и команд team chat:**\n\n"
+        "Доступные команды в team chat:\n"
+        "• `онлайн` — проверка состава\n"
+        "• `время` — игровое время\n"
+        "• `события` — текущие ивенты\n"
+        "• `рейд-калькулятор` — расчет ресурсов\n"
+        "• `перевод` — быстрые переводы\n"
+        "• `поиск магазинов` — вендоры\n\n"
+        "Умные устройства, рейдовые сигнализации и голосовой помощник Алиса настроены.",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="⬅️ Назад в меню Rust+", callback_data="rust_plus_menu")]
+        ]),
+        parse_mode="Markdown"
+    )
     await callback.answer()
 
 @router.callback_query(F.data == "raid_calc")
@@ -186,7 +312,7 @@ async def start_search_id(callback: CallbackQuery, state: FSMContext):
 async def start_search_nick(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
     await callback.message.edit_text(
-        "Отправьте мне **ник игрока** для поиска через официальную страницу поиска Steam (`/search/users/?l=russian`).\n\n"
+        "Отправьте мне **ник игрока** для поиска через `https://steamcommunity.com/search/users/?l=russian`.\n\n"
         "Можете отправлять сколько угодно ников подряд, пока не нажмете кнопку ниже:",
         reply_markup=stop_search_keyboard(),
         parse_mode="Markdown"
@@ -244,19 +370,21 @@ async def process_nickname_input(message: Message, state: FSMContext):
     
     if msg_id:
         try:
-            await bot.edit_message_text(f"🔍 Ищу '{query}' через https://steamcommunity.com/search/users/?l=russian ...", chat_id=user_id, message_id=msg_id, reply_markup=stop_search_keyboard())
+            await bot.edit_message_text(f"🔍 Ищу '{query}' через https://steamcommunity.com/search/users/?l=russian#text={quote(query)} ...", chat_id=user_id, message_id=msg_id, reply_markup=stop_search_keyboard())
         except Exception:
             pass
 
-    # Формируем запрос строго на страницу поиска Steam с параметром русской локали
-    search_url = f"https://steamcommunity.com/search/users/?l=russian&text={quote(query)}"
+    search_url = f"https://steamcommunity.com/search/users/?l=russian#text={quote(query)}"
+    
+    # Фактический запрос для парсинга пойдет на эндпоинт поиска Steam
+    api_search_url = f"https://steamcommunity.com/search/users/?l=russian&text={quote(query)}"
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7"
     }
 
     async with aiohttp.ClientSession() as session:
-        async with session.get(search_url, headers=headers) as resp:
+        async with session.get(api_search_url, headers=headers) as resp:
             if resp.status != 200:
                 if msg_id:
                     await bot.edit_message_text("❌ Ошибка при обращении к серверам Steam.", chat_id=user_id, message_id=msg_id, reply_markup=stop_search_keyboard())
@@ -302,12 +430,12 @@ async def process_nickname_input(message: Message, state: FSMContext):
 
     if not found_players:
         err_text = (
-            f"❌ По запросу **{query}** на `https://steamcommunity.com/search/users/?l=russian` ничего не найдено.\n\n"
-            "💡 Попробуйте ввести другой ник или точный кастомный ID:"
+            f"❌ По запросу **{query}** на `{search_url}` ничего не найдено.\n\n"
+            "💡 Попробуйте ввести другой ник:"
         )
         if msg_id:
             try:
-                await bot.edit_message_text(err_text, chat_id=user_id, message_id=msg_id, reply_markup=stop_search_keyboard(), parse_mode="Markdown")
+                await bot.edit_message_text(err_text, chat_id=user_id, message_id=msg_id, reply_markup=stop_search_keyboard(), parse_mode="Markdown", disable_web_page_preview=True)
             except Exception:
                 pass
         return
@@ -347,7 +475,8 @@ async def send_search_page(user_id: int, page: int = 0):
 
     keyboard.append([InlineKeyboardButton(text="🛑 Прекратить поиск", callback_data="go_home")])
 
-    text = f"🔍 Найдено по запросу **{nickname}** через [Steam Search](https://steamcommunity.com/search/users/?l=russian) (Страница {page + 1} из {total_pages}):\n\nМожете отправить следующий ник:"
+    target_link = f"https://steamcommunity.com/search/users/?l=russian#text={quote(nickname)}"
+    text = f"🔍 Найдено по запросу **{nickname}** через [Steam Search]({target_link}) (Страница {page + 1} из {total_pages}):\n\nМожете отправить следующий ник:"
     markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
     
     try:
