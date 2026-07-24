@@ -52,6 +52,11 @@ def back_keyboard(user_id):
         [InlineKeyboardButton(text="⬅️ Вернуться на самое начало", callback_data="go_home")]
     ])
 
+def stop_search_keyboard():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🛑 Прекратить поиск", callback_data="go_home")]
+    ])
+
 def result_keyboard(steam_id, is_tracked=False):
     if is_tracked:
         track_btn = InlineKeyboardButton(text="🛑 Прекратить отслеживание", callback_data=f"stop_track_{steam_id}")
@@ -161,8 +166,9 @@ async def about_bot(callback: CallbackQuery):
 @router.callback_query(F.data == "start_search_id")
 async def start_search_id(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text(
-        "Отправьте мне **Steam ID**, ссылку или кастомный ID (например, `76561198000000000` или `numberonerust`):",
-        reply_markup=back_keyboard(callback.from_user.id),
+        "Отправьте мне **Steam ID**, ссылку или кастомный ID (например, `76561198000000000` or `numberonerust`).\n\n"
+        "Можете отправлять сколько угодно игроков подряд, пока не нажмете кнопку ниже:",
+        reply_markup=stop_search_keyboard(),
         parse_mode="Markdown"
     )
     await state.set_state(SearchState.waiting_for_steam_id)
@@ -171,8 +177,9 @@ async def start_search_id(callback: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data == "start_search_nick")
 async def start_search_nick(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text(
-        "Отправьте мне **ник или кастомный ID игрока** для поиска:",
-        reply_markup=back_keyboard(callback.from_user.id),
+        "Отправьте мне **ник или кастомный ID игрока** для поиска.\n\n"
+        "Можете отправлять сколько угодно ников подряд, пока не нажмете кнопку ниже:",
+        reply_markup=stop_search_keyboard(),
         parse_mode="Markdown"
     )
     await state.set_state(SearchState.waiting_for_nickname)
@@ -196,8 +203,7 @@ async def process_steam_id_input(message: Message, state: FSMContext):
                 if response_block.get("success") == 1:
                     user_input = response_block.get("steamid")
                 else:
-                    await message.answer("❌ Игрок не найден. Проверьте правильность Steam ID, кастомного имени или ссылки.", reply_markup=back_keyboard(message.chat.id))
-                    await state.clear()
+                    await message.answer("❌ Игрок не найден. Проверьте правильность Steam ID, кастомного имени или ссылки.")
                     return
 
     await show_player_profile(message, user_input, state)
@@ -224,14 +230,16 @@ async def process_nickname_input(message: Message, state: FSMContext):
                 await show_player_profile(message, steam_id, state)
                 return
 
-    search_url = f"https://steamcommunity.com/search/users/?text={quote(query)}&l=russian"
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+    search_url = f"https://steamcommunity.com/search/users/?text={quote(query)}"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7"
+    }
 
     async with aiohttp.ClientSession() as session:
         async with session.get(search_url, headers=headers) as resp:
             if resp.status != 200:
-                await msg.edit_text("❌ Ошибка при обращении к серверам Steam.", reply_markup=back_keyboard(message.chat.id))
-                await state.clear()
+                await msg.edit_text("❌ Ошибка при обращении к серверам Steam.")
                 return
             
             html = await resp.text()
@@ -239,20 +247,27 @@ async def process_nickname_input(message: Message, state: FSMContext):
     soup = BeautifulSoup(html, 'html.parser')
     found_players = []
 
-    for block in soup.select('.search_row'):
-        link_elem = block.select_one('.search_result_row')
-        if not link_elem:
-            link_elem = block.find('a', href=True)
-        
-        href = link_elem.get('href') if link_elem else ""
-        name_elem = block.select_one('.searchPersonaName')
-        name = name_elem.text.strip() if name_elem else "Неизвестно"
+    rows = soup.select('.search_row') or soup.select('.user_search_row') or soup.select('a.search_result_row')
+
+    for block in rows:
+        href = ""
+        if block.name == 'a':
+            href = block.get('href', '')
+            name_elem = block.select_one('.searchPersonaName') or block
+            name = name_elem.text.strip() if name_elem else "Неизвестно"
+        else:
+            link_elem = block.select_one('a.search_result_row') or block.find('a', href=True)
+            href = link_elem.get('href', '') if link_elem else ""
+            name_elem = block.select_one('.searchPersonaName')
+            name = name_elem.text.strip() if name_elem else "Неизвестно"
 
         steam_id = None
         if "/profiles/" in href:
             parts = href.rstrip("/").split("/")
-            if parts[-1].isdigit():
-                steam_id = parts[-1]
+            for part in parts:
+                if part.isdigit() and len(part) == 17:
+                    steam_id = part
+                    break
         elif "/id/" in href:
             vanity = href.rstrip("/").split("/")[-1]
             async with aiohttp.ClientSession() as session:
@@ -262,24 +277,26 @@ async def process_nickname_input(message: Message, state: FSMContext):
                     if v_data.get("response", {}).get("success") == 1:
                         steam_id = v_data.get("response", {}).get("steamid")
 
-        if steam_id:
+        if steam_id and not any(p['steamid'] == steam_id for p in found_players):
             found_players.append({"steamid": steam_id, "name": name})
 
     if not found_players:
-        await msg.edit_text("❌ Игроки с таким ником или ID не найдены.", reply_markup=back_keyboard(message.chat.id))
-        await state.clear()
+        await msg.edit_text(
+            "❌ Игроки не найдены.\n\n"
+            "💡 **Совет:** У Steam стоит сильная защита от частых запросов парсинга по обычным никам. "
+            "Самый надежный способ найти игрока — использовать его **кастомный ID** (например, `numberonerust`) или прямой **Steam ID 64**."
+        )
         return
 
     user_id = message.chat.id
     search_cache[user_id] = {"players": found_players, "query": query}
 
-    await state.clear()
     await send_search_page(msg, user_id, page=0, edit=True)
 
 async def send_search_page(msg: Message, user_id: int, page: int = 0, edit: bool = False):
     data = search_cache.get(user_id)
     if not data:
-        await msg.edit_text("❌ Время поиска истекло. Повторите запрос.", reply_markup=back_keyboard(user_id))
+        await msg.edit_text("❌ Время поиска истекло. Повторите запрос.")
         return
 
     players = data["players"]
@@ -306,7 +323,7 @@ async def send_search_page(msg: Message, user_id: int, page: int = 0, edit: bool
     if nav_buttons:
         keyboard.append(nav_buttons)
 
-    keyboard.append([InlineKeyboardButton(text="⬅️ Вернуться на самое начало", callback_data="go_home")])
+    keyboard.append([InlineKeyboardButton(text="🛑 Прекратить поиск", callback_data="go_home")])
 
     text = f"🔍 Найдено по запросу **{nickname}** (Страница {page + 1} из {total_pages}):"
     
@@ -349,11 +366,10 @@ async def show_player_profile(message: Message, steam_id: str, state: FSMContext
             
             if not players:
                 if edit_message:
-                    await msg.edit_text("❌ Профиль игрока скрыт или не найден.", reply_markup=back_keyboard(chat_id))
+                    await msg.edit_text("❌ Профиль игрока скрыт или не найден.")
                 else:
                     await msg.delete()
-                    await message.answer("❌ Профиль игрока скрыт или не найден.", reply_markup=back_keyboard(chat_id))
-                await state.clear()
+                    await message.answer("❌ Профиль игрока скрыт или не найден.")
                 return
             
             player = players[0]
@@ -365,7 +381,7 @@ async def show_player_profile(message: Message, steam_id: str, state: FSMContext
             time_created = player.get("timecreated")
             if time_created:
                 import datetime
-                reg_date = datetime.datetime.utcfromtimestamp(time_created).strftime('%Y-%m-%d %H:%M:%S (UTC)')
+                reg_date = datetime.datetime.fromtimestamp(time_created, datetime.timezone.utc).strftime('%Y-%m-%d %H:%M:%S (UTC)')
             else:
                 reg_date = "Скрыта или неизвестна"
 
@@ -398,6 +414,7 @@ async def show_player_profile(message: Message, steam_id: str, state: FSMContext
 
         rust_servers_text = "\n".join(rust_sessions[:3]) if rust_sessions else "⚠️ Нет данных о недавних сессиях в Rust."
         ruststats_link = f"https://ruststats.io/profile/{steam_id}"
+        rustbans_link = f"https://rustbans.ru/profile/{steam_id}"
 
         response_text = (
             f"👤 **Игрок:** {name}\n"
@@ -408,7 +425,8 @@ async def show_player_profile(message: Message, steam_id: str, state: FSMContext
             f"{rust_servers_text}\n\n"
             f"🔗 **Ссылки:**\n"
             f"• [Профиль Steam]({profile_link})\n"
-            f"• [RustStats.io]({ruststats_link})"
+            f"• [RustStats.io]({ruststats_link})\n"
+            f"• [RustBans]({rustbans_link})"
         )
 
         user_id = chat_id
@@ -429,8 +447,6 @@ async def show_player_profile(message: Message, steam_id: str, state: FSMContext
                 parse_mode="Markdown",
                 disable_web_page_preview=True
             )
-    
-    await state.clear()
 
 @router.callback_query(F.data.startswith("start_track_"))
 async def start_track_player(callback: CallbackQuery):
