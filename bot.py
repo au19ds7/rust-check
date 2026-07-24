@@ -17,7 +17,6 @@ router = Router()
 class SearchState(StatesGroup):
     waiting_for_steam_id = State()
 
-# Клавиатуры
 def main_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🔍 Найти игрока Rust", callback_data="start_search")],
@@ -64,7 +63,7 @@ async def go_home(callback: CallbackQuery, state: FSMContext):
 async def about_bot(callback: CallbackQuery):
     await callback.message.edit_text(
         "ℹ️ **О боте:**\n\n"
-        "Этот бот создан для проверки игроков в **Rust** по Steam ID, кастомным ссылкам, просмотра статуса и активности.\n\n"
+        "Этот бот создан для проверки игроков в **Rust** по Steam ID, кастомным ссылкам, статуса и даты создания профиля.\n\n"
         "👨‍💻 **Создатель:** Telegram: @allfytiq",
         reply_markup=back_keyboard(),
         parse_mode="Markdown"
@@ -85,7 +84,6 @@ async def start_search(callback: CallbackQuery, state: FSMContext):
 async def process_steam_id(message: Message, state: FSMContext):
     user_input = message.text.strip()
     
-    # Обработка ссылок Steam
     if "steamcommunity.com/id/" in user_input:
         user_input = user_input.rstrip("/").split("/")[-1]
     elif "steamcommunity.com/profiles/" in user_input:
@@ -114,7 +112,7 @@ async def process_steam_id(message: Message, state: FSMContext):
             await state.clear()
             return
 
-        # 1. Получаем профиль
+        # 1. Профиль игрока (включая дату создания аккаунта timecreated)
         profile_url = f"https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v0002/?key={STEAM_API_KEY}&steamids={steam_id}"
         async with session.get(profile_url) as resp:
             data = await resp.json()
@@ -130,42 +128,58 @@ async def process_steam_id(message: Message, state: FSMContext):
             profile_link = player.get("profileurl", "")
             gameid = player.get("gameid")
             game_ext_info = player.get("gameextrainfo", "")
+            
+            # Дата создания аккаунта
+            time_created = player.get("timecreated")
+            if time_created:
+                import datetime
+                reg_date = datetime.datetime.utcfromtimestamp(time_created).strftime('%Y-%m-%d %H:%M:%S (UTC)')
+            else:
+                reg_date = "Скрыта или неизвестна"
 
-        # Статус
         status_text = "🔴 Оффлайн / Не в игре"
         if gameid == "252490" or "Rust" in game_ext_info:
             status_text = "🟢 Играет в Rust прямо сейчас!"
         elif gameid:
             status_text = f"🎮 Играет в другую игру: {game_ext_info}"
 
-        # 2. Получаем недавние игры (активность / последние игры за 2 недели)
-        recent_games_text = "Нет данных об активности за последнее время."
+        # 2. Общая статистика Rust (сколько наиграл)
+        rust_hours = 0
+        stats_url = f"https://api.steampowered.com/IPlayerService/GetOwnedGames/v0001/?key={STEAM_API_KEY}&steamid={steam_id}&format=json"
+        async with session.get(stats_url) as resp:
+            stats_data = await resp.json()
+            owned_games = stats_data.get("response", {}).get("games", [])
+            for g in owned_games:
+                if str(g.get("appid")) == "252490":
+                    rust_hours = round(g.get("playtime_forever", 0) / 60, 1)
+
+        # 3. Активность в Rust за последние 2 недели
+        rust_sessions = []
         recent_url = f"https://api.steampowered.com/IPlayerService/GetRecentlyPlayedGames/v0001/?key={STEAM_API_KEY}&steamid={steam_id}&format=json"
         async with session.get(recent_url) as resp:
             recent_data = await resp.json()
             games = recent_data.get("response", {}).get("games", [])
-            if games:
-                lines = []
-                # Берем до 3 последних игр из списка
-                for g in games[:3]:
-                    g_name = g.get("name", "Игра")
-                    minutes = g.get("playtime_2weeks", 0)
-                    hours = round(minutes / 60, 1)
-                    lines.append(f"• {g_name} — {hours} ч. за последние 2 недели")
-                recent_games_text = "\n".join(lines)
+            for g in games:
+                if str(g.get("appid")) == "252490":
+                    mins_2weeks = g.get("playtime_2weeks", 0)
+                    hours_2weeks = round(mins_2weeks / 60, 1)
+                    rust_sessions.append(f"• Официальный клиент Rust (за 2 недели) — {hours_2weeks} ч.")
 
-        steamrep_link = f"https://steamrep.com/profiles/{steam_id}"
-        faceit_link = f"https://www.faceit.com/en/players/{name}"
+        rust_servers_text = "\n".join(rust_sessions[:3]) if rust_sessions else "⚠️ Нет данных о недавних сессиях в Rust."
+
+        # Ссылка на ruststats.io
+        ruststats_link = f"https://ruststats.io/profile/{steam_id}"
 
         response_text = (
             f"👤 **Игрок:** {name}\n"
-            f"📌 **Статус:** {status_text}\n\n"
-            f"📊 **Последняя активность в играх:**\n"
-            f"{recent_games_text}\n\n"
-            f"🔗 **Ссылки на площадки:**\n"
+            f"📌 **Статус:** {status_text}\n"
+            f"📅 **Дата создания аккаунта:** {reg_date}\n"
+            f"⏳ **Всего наиграно в Rust:** {rust_hours} ч.\n\n"
+            f"🖥 **Последняя активность в Rust:**\n"
+            f"{rust_servers_text}\n\n"
+            f"🔗 **Ссылки:**\n"
             f"• [Профиль Steam]({profile_link})\n"
-            f"• [SteamRep (проверка банов)]({steamrep_link})\n"
-            f"• [Faceit]({faceit_link})"
+            f"• [RustStats.io]({ruststats_link})"
         )
 
         await msg.delete()
