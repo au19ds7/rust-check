@@ -27,9 +27,12 @@ active_trackers = {}
 tracked_players_list = {}
 search_cache = {}
 last_search_message = {}
-user_languages = {} # Хранит выбранный язык пользователей (по умолчанию 'ru')
+user_languages = {}
 
-# --- СЛОВАРЬ ПЕРЕВОДОВ ---
+# Хранилище серверов для кастомных вкладок (Онлайн / Карта)
+# Структура: user_servers[user_id] = [{"ip": "...", "name": "..."}]
+user_servers = {}
+
 LANGS = {
     "ru": {
         "main_menu": "👋 **Главное меню бота:**\n\nВыберите нужный раздел с помощью кнопок ниже:",
@@ -38,26 +41,47 @@ LANGS = {
         "stop_search": "🛑 Прекратить поиск",
         "btn_search_id": "🔍 Стим ID / Ссылка",
         "btn_search_nick": "🔍 Никнейм",
-        "btn_monitor": "⚡️ Мониторинг сервера (IP)",
+        "btn_rust_plus": "⚡️ Rust+",
         "btn_raid": "💥 Калькулятор рейда",
         "btn_tracked": "👁 Мои отслеживания",
         "btn_about": "ℹ️ О боте",
         "about_text": (
             "ℹ️ **О боте:**\n\n"
-            "Многофункциональный помощник для игроков Rust. Включает поиск Steam, интеграцию с RustBans, калькулятор рейда и мониторинг серверов.\n\n"
+            "Многофункциональный помощник для игроков Rust.\n\n"
             "🌐 **Выберите язык / Choose language / Виберіть мову:**"
         ),
         "lang_changed": "✅ Язык успешно изменен на Русский!",
-        "net_menu_title": "⚡️ **Мониторинг сервера Rust:**\n\nНажмите кнопку ниже, чтобы ввести IP-адрес и порт сервера и мгновенно получить информацию о нем.",
-        "net_btn_check": "🌐 Проверить сервер по IP",
-        "net_prompt": "🌐 **Введите IP-адрес и порт сервера Rust**\n\nНапример: `193.70.81.30:28015` (можно вставлять вместе с `connect`)",
-        "net_polling": "⏳ Опрашиваю игровой сервер...",
-        "net_bad_format": "❌ Неверный формат. Используйте формат `IP:Порт` (например: `193.70.81.30:28015`)",
-        "net_bad_port": "❌ Порт должен состоять только из цифр.",
-        "net_online": "🟢 **Сервер в сети!**\n\n📌 **Название:** {name}\n🗺 **Карта:** {map}\n👥 **Онлайн:** {players} / {max_players} игроков\n📶 **Пинг:** {ping} мс\n⚙️ **Версия игры:** {version}\n",
-        "net_error": "❌ Не удалось подключиться к серверу `{ip}`.\n\nВозможные причины:\n• Указан неверный IP или порт\n• Сервер выключен или перезагружается\n*(Ошибка: {err})*",
-        "btn_retry": "🔄 Попробовать снова",
-        "btn_check_another": "🔄 Проверить другой сервер",
+        "rust_plus_menu_title": "⚡️ **Меню Rust+**\n\nВыберите нужный раздел:",
+        "rp_tab_online": "🟢 1. Онлайн",
+        "rp_tab_map": "🗺 2. Карта",
+        "rp_tab_third": "⚙️ 3. Настройки / Прочее",
+        "rp_online_title": "🟢 **Список серверов (Онлайн):**\n\nВыберите сервер или управляйте списком:",
+        "rp_map_title": "🗺 **Список серверов (Карта):**\n\nВыберите сервер для получения карты:",
+        "btn_add_server": "➕ Добавить сервер",
+        "btn_delete_server": "🗑 Удалить сервер",
+        "rp_prompt_ip": "🌐 **Введите IP-адрес и порт сервера Rust**\n\nНапример: `193.70.81.30:28015` (можно вставлять вместе с `connect`)",
+        "rp_prompt_name": "📌 Теперь введите **название сервера** (как на RustExplore / BattleMetrics):\n\nНапример: `Enchanted.gg EU 5x PvE`",
+        "rp_server_added": "✅ Сервер успешно добавлен!",
+        "rp_no_servers": "📭 Список серверов пуст.",
+        "rp_select_to_del": "🗑 Выберите сервер для удаления:",
+        "rp_deleted": "✅ Сервер удален.",
+        "rp_online_instruction": (
+            "📊 **Инструкция для получения онлайна:**\n\n"
+            "1. Скопируйте IP этого сервера и вставьте на сайт [RustExplore](https://rustexplore.com/ru/servers).\n"
+            "2. Скопируйте точное название первого сервера в выдаче.\n"
+            "3. Перейдите на [BattleMetrics](https://www.battlemetrics.com/), введите название в поиск.\n"
+            "4. Зайдите на самый верхний сервер, справа сверху скопируйте список игроков (кто заходил/выходил) и отправьте его сюда сообщением!"
+        ),
+        "rp_map_instruction": (
+            "🗺 **Инструкция для получения карты:**\n\n"
+            "1. Скопируйте IP этого сервера и найдите его на [RustExplore](https://rustexplore.com/ru/servers) или [BattleMetrics](https://www.battlemetrics.com/).\n"
+            "2. Перейдите на страницу сервера, найдите карту справа снизу сайта.\n"
+            "3. Скопируйте или сохраните картинку карты и отправьте её сюда в чат с ботом!"
+        ),
+        "rp_waiting_players_list": "📥 Ожидаю список игроков с BattleMetrics для сервера `{name}`... Отправьте его следующим сообщением.",
+        "rp_waiting_map_image": "📥 Ожидаю изображение карты для сервера `{name}`... Отправьте скриншот или картинку карты.",
+        "rp_list_received": "✅ Список игроков успешно принят и обработан для сервера `{name}`!",
+        "rp_map_received": "✅ Карта сервера успешно принята!",
         "raid_title": "💥 **Калькулятор рейда**\n\nВведите название цели (например: `Гаражка`, `Каменный шкаф`):",
         "raid_result": "💥 **Расчет рейда для:** `{target}`\n\n• Сатчели (Satchel): 4 шт.\n• Срывные заряды (C4): 1 шт.\n• Ракеты: 2 шт.\n• Серная кислота / взрывчатка: учтено.",
         "btn_calc_more": "🔄 Посчитать еще",
@@ -88,26 +112,47 @@ LANGS = {
         "stop_search": "🛑 Stop search",
         "btn_search_id": "🔍 Steam ID / URL",
         "btn_search_nick": "🔍 Nickname",
-        "btn_monitor": "⚡️ Server Monitor (IP)",
+        "btn_rust_plus": "⚡️ Rust+",
         "btn_raid": "💥 Raid Calculator",
         "btn_tracked": "👁 My Tracked Players",
         "btn_about": "ℹ️ About Bot",
         "about_text": (
             "ℹ️ **About Bot:**\n\n"
-            "Multifunctional helper for Rust players. Includes Steam search, RustBans integration, raid calculator, and server monitoring.\n\n"
+            "Multifunctional helper for Rust players.\n\n"
             "🌐 **Choose language / Выберите язык / Виберіть мову:**"
         ),
         "lang_changed": "✅ Language successfully changed to English!",
-        "net_menu_title": "⚡️ **Rust Server Monitor:**\n\nClick the button below to enter the server IP and port to instantly get its info.",
-        "net_btn_check": "🌐 Check server by IP",
-        "net_prompt": "🌐 **Enter Rust server IP and port**\n\nExample: `193.70.81.30:28015` (you can paste with `connect`)",
-        "net_polling": "⏳ Querying game server...",
-        "net_bad_format": "❌ Invalid format. Use `IP:Port` format (e.g.: `193.70.81.30:28015`)",
-        "net_bad_port": "❌ Port must contain digits only.",
-        "net_online": "🟢 **Server is online!**\n\n📌 **Name:** {name}\n🗺 **Map:** {map}\n👥 **Players:** {players} / {max_players}\n📶 **Ping:** {ping} ms\n⚙️ **Game Version:** {version}\n",
-        "net_error": "❌ Failed to connect to server `{ip}`.\n\nPossible reasons:\n• Incorrect IP or port\n• Server is offline or restarting\n*(Error: {err})*",
-        "btn_retry": "🔄 Try again",
-        "btn_check_another": "🔄 Check another server",
+        "rust_plus_menu_title": "⚡️ **Rust+ Menu**\n\nSelect a section:",
+        "rp_tab_online": "🟢 1. Online",
+        "rp_tab_map": "🗺 2. Map",
+        "rp_tab_third": "⚙️ 3. Settings / Other",
+        "rp_online_title": "🟢 **Servers List (Online):**\n\nSelect a server or manage list:",
+        "rp_map_title": "🗺 **Servers List (Map):**\n\nSelect a server to get map:",
+        "btn_add_server": "➕ Add server",
+        "btn_delete_server": "🗑 Delete server",
+        "rp_prompt_ip": "🌐 **Enter Rust server IP and port**\n\nExample: `193.70.81.30:28015` (you can paste with `connect`)",
+        "rp_prompt_name": "📌 Now enter **server name** (as on RustExplore / BattleMetrics):\n\nExample: `Enchanted.gg EU 5x PvE`",
+        "rp_server_added": "✅ Server successfully added!",
+        "rp_no_servers": "📭 Server list is empty.",
+        "rp_select_to_del": "🗑 Select server to delete:",
+        "rp_deleted": "✅ Server deleted.",
+        "rp_online_instruction": (
+            "📊 **Instructions to get online info:**\n\n"
+            "1. Copy this server IP and paste it on [RustExplore](https://rustexplore.com/ru/servers).\n"
+            "2. Copy the exact name of the first server in the list.\n"
+            "3. Go to [BattleMetrics](https://www.battlemetrics.com/), search for the name.\n"
+            "4. Go to the top server, copy the players list (join/leave) from the top right and send it here as a message!"
+        ),
+        "rp_map_instruction": (
+            "🗺 **Instructions to get map:**\n\n"
+            "1. Copy this server IP and find it on [RustExplore](https://rustexplore.com/ru/servers) or [BattleMetrics](https://www.battlemetrics.com/).\n"
+            "2. Go to the server page, find the map at the bottom right of the site.\n"
+            "3. Copy or save the map image and send it here to the chat with the bot!"
+        ),
+        "rp_waiting_players_list": "📥 Waiting for players list from BattleMetrics for server `{name}`... Send it in the next message.",
+        "rp_waiting_map_image": "📥 Waiting for map image for server `{name}`... Send a screenshot or picture of the map.",
+        "rp_list_received": "✅ Players list successfully received and processed for server `{name}`!",
+        "rp_map_received": "✅ Server map successfully received!",
         "raid_title": "💥 **Raid Calculator**\n\nEnter target name (e.g.: `Garage door`, `Stone wall`):",
         "raid_result": "💥 **Raid calculation for:** `{target}`\n\n• Satchels: 4 pcs.\n• C4 Charges: 1 pc.\n• Rockets: 2 pcs.\n• Acid / Explosives: factored in.",
         "btn_calc_more": "🔄 Calculate another",
@@ -138,26 +183,47 @@ LANGS = {
         "stop_search": "🛑 Припинити пошук",
         "btn_search_id": "🔍 Стім ID / Посилання",
         "btn_search_nick": "🔍 Нікнейм",
-        "btn_monitor": "⚡️ Моніторинг сервера (IP)",
+        "btn_rust_plus": "⚡️ Rust+",
         "btn_raid": "💥 Калькулятор рейду",
         "btn_tracked": "👁 Мої відстеження",
         "btn_about": "ℹ️ Про бота",
         "about_text": (
             "ℹ️ **Про бота:**\n\n"
-            "Багатофункціональний помічник для гравців Rust. Включає пошук Steam, інтеграцію з RustBans, калькулятор рейду та моніторинг серверів.\n\n"
+            "Багатофункціональний помічник для гравців Rust.\n\n"
             "🌐 **Виберіть мову / Choose language / Выберите язык:**"
         ),
         "lang_changed": "✅ Мову успішно змінено на Українську!",
-        "net_menu_title": "⚡️ **Моніторинг сервера Rust:**\n\nНатисніть кнопку нижче, щоб ввести IP-адресу та порт сервера і миттєво отримати інформацію про нього.",
-        "net_btn_check": "🌐 Перевірити сервер за IP",
-        "net_prompt": "🌐 **Введіть IP-адресу та порт сервера Rust**\n\nНаприклад: `193.70.81.30:28015` (можна вставляти разом з `connect`)",
-        "net_polling": "⏳ Опитую ігровий сервер...",
-        "net_bad_format": "❌ Невірний формат. Використовуйте формат `IP:Порт` (наприклад: `193.70.81.30:28015`)",
-        "net_bad_port": "❌ Порт повинен складатись тільки з цифр.",
-        "net_online": "🟢 **Сервер у мережі!**\n\n📌 **Назва:** {name}\n🗺 **Карта:** {map}\n👥 **Онлайн:** {players} / {max_players} гравців\n📶 **Пінг:** {ping} мс\n⚙️ **Версія гри:** {version}\n",
-        "net_error": "❌ Не вдалося підключитися до сервера `{ip}`.\n\nМожливі причини:\n• Вказано невірний IP або порт\n• Сервер вимкнено або перезавантажується\n*(Помилка: {err})*",
-        "btn_retry": "🔄 Спробувати знову",
-        "btn_check_another": "🔄 Перевірити інший сервер",
+        "rust_plus_menu_title": "⚡️ **Меню Rust+**\n\nВиберіть потрібний розділ:",
+        "rp_tab_online": "🟢 1. Онлайн",
+        "rp_tab_map": "🗺 2. Карта",
+        "rp_tab_third": "⚙️ 3. Налаштування / Інше",
+        "rp_online_title": "🟢 **Список серверів (Онлайн):**\n\nВиберіть сервер або керуйте списком:",
+        "rp_map_title": "🗺 **Список серверів (Карта):**\n\nВиберіть сервер для отримання карти:",
+        "btn_add_server": "➕ Додати сервер",
+        "btn_delete_server": "🗑 Видалити сервер",
+        "rp_prompt_ip": "🌐 **Введіть IP-адресу та порт сервера Rust**\n\nНаприклад: `193.70.81.30:28015` (можна вставляти разом з `connect`)",
+        "rp_prompt_name": "📌 Тепер введіть **назву сервера** (як на RustExplore / BattleMetrics):\n\nНаприклад: `Enchanted.gg EU 5x PvE`",
+        "rp_server_added": "✅ Сервер успішно додано!",
+        "rp_no_servers": "📭 Список серверів порожній.",
+        "rp_select_to_del": "🗑 Виберіть сервер для видалення:",
+        "rp_deleted": "✅ Сервер видалено.",
+        "rp_online_instruction": (
+            "📊 **Інструкція для отримання онлайну:**\n\n"
+            "1. Скопіюйте IP цього сервера та вставте на сайт [RustExplore](https://rustexplore.com/ru/servers).\n"
+            "2. Скопіюйте точну назву першого сервера у видачі.\n"
+            "3. Перейдіть на [BattleMetrics](https://www.battlemetrics.com/), введіть назву в пошук.\n"
+            "4. Зайдіть на найвищий сервер, праворуч зверху скопіюйте список гравців (хто заходив/виходив) і надішліть його сюди повідомленням!"
+        ),
+        "rp_map_instruction": (
+            "🗺 **Інструкція для отримання карти:**\n\n"
+            "1. Скопіюйте IP цього сервера та знайдіть його на [RustExplore](https://rustexplore.com/ru/servers) або [BattleMetrics](https://www.battlemetrics.com/).\n"
+            "2. Перейдіть на сторінку сервера, знайдіть карту праворуч знизу сайту.\n"
+            "3. Скопіюйте або збережіть картинку карти та надішліть її сюди в чат з ботом!"
+        ),
+        "rp_waiting_players_list": "📥 Чекаю на список гравців з BattleMetrics для сервера `{name}`... Надішліть його наступним повідомленням.",
+        "rp_waiting_map_image": "📥 Чекаю на зображення карти для сервера `{name}`... Надішліть скріншот або картинку карти.",
+        "rp_list_received": "✅ Список гравців успішно прийнято та оброблено для сервера `{name}`!",
+        "rp_map_received": "✅ Карта сервера успішно прийнята!",
         "raid_title": "💥 **Калькулятор рейду**\n\nВведіть назву цілі (наприклад: `Гаражка`, `Кам'яна шафа`):",
         "raid_result": "💥 **Розрахунок рейду для:** `{target}`\n\n• Сатчелі (Satchel): 4 шт.\n• Зривні заряди (C4): 1 шт.\n• Ракети: 2 шт.\n• Сірчана кислота / вибухівка: враховано.",
         "btn_calc_more": "🔄 Порахувати ще",
@@ -183,6 +249,19 @@ LANGS = {
     }
 }
 
+class SearchState(StatesGroup):
+    waiting_for_steam_id = State()
+    waiting_for_nickname = State()
+
+class RustPlusFlowState(StatesGroup):
+    waiting_for_ip = State()
+    waiting_for_name = State()
+    waiting_for_players_input = State()
+    waiting_for_map_input = State()
+
+class RaidCalculatorState(StatesGroup):
+    waiting_for_target = State()
+
 def get_lang(user_id: int) -> str:
     return user_languages.get(user_id, "ru")
 
@@ -193,16 +272,6 @@ def t(user_id: int, key: str, **kwargs) -> str:
         return text.format(**kwargs)
     return text
 
-class SearchState(StatesGroup):
-    waiting_for_steam_id = State()
-    waiting_for_nickname = State()
-
-class RustPlusState(StatesGroup):
-    waiting_for_server_ip = State()
-
-class RaidCalculatorState(StatesGroup):
-    waiting_for_target = State()
-
 def main_keyboard(user_id):
     keyboard = [
         [
@@ -210,7 +279,7 @@ def main_keyboard(user_id):
             InlineKeyboardButton(text=t(user_id, "btn_search_nick"), callback_data="start_search_nick")
         ],
         [
-            InlineKeyboardButton(text=t(user_id, "btn_monitor"), callback_data="rust_plus_menu")
+            InlineKeyboardButton(text=t(user_id, "btn_rust_plus"), callback_data="rust_plus_menu")
         ],
         [
             InlineKeyboardButton(text=t(user_id, "btn_raid"), callback_data="raid_calc_start")
@@ -276,35 +345,92 @@ async def go_home(callback: CallbackQuery, state: FSMContext):
     )
     await callback.answer()
 
-# --- МОДУЛЬ ПРОВЕРКИ СЕРВЕРА ---
+# --- НОВЫЙ МОДУЛЬ RUST+ С 3 ВКЛАДКАМИ ---
 
 @router.callback_query(F.data == "rust_plus_menu")
 async def rust_plus_menu_handler(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
     keyboard = [
-        [InlineKeyboardButton(text=t(user_id, "net_btn_check"), callback_data="rp_add_server")],
+        [InlineKeyboardButton(text=t(user_id, "rp_tab_online"), callback_data="rp_tab_online_click")],
+        [InlineKeyboardButton(text=t(user_id, "rp_tab_map"), callback_data="rp_tab_map_click")],
+        [InlineKeyboardButton(text=t(user_id, "rp_tab_third"), callback_data="rp_tab_third_click")],
         [InlineKeyboardButton(text=t(user_id, "home_btn"), callback_data="go_home")]
     ]
 
     try:
-        await callback.message.edit_text(t(user_id, "net_menu_title"), reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard), parse_mode="Markdown")
+        await callback.message.edit_text(t(user_id, "rust_plus_menu_title"), reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard), parse_mode="Markdown")
     except Exception:
-        await callback.message.answer(t(user_id, "net_menu_title"), reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard), parse_mode="Markdown")
+        await callback.message.answer(t(user_id, "rust_plus_menu_title"), reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard), parse_mode="Markdown")
     await callback.answer()
 
-@router.callback_query(F.data == "rp_add_server")
-async def rp_add_server_handler(callback: CallbackQuery, state: FSMContext):
+@router.callback_query(F.data == "rp_tab_online_click")
+async def rp_tab_online_handler(callback: CallbackQuery):
+    user_id = callback.from_user.id
+    servers = user_servers.get(user_id, [])
+    
+    keyboard = []
+    for idx, s in enumerate(servers):
+        keyboard.append([InlineKeyboardButton(text=f"🟢 {s['name']} ({s['ip']})", callback_data=f"rp_online_srv_{idx}")])
+    
+    keyboard.append([
+        InlineKeyboardButton(text=t(user_id, "btn_add_server"), callback_data="rp_add_srv"),
+        InlineKeyboardButton(text=t(user_id, "btn_delete_server"), callback_data="rp_del_srv_menu")
+    ])
+    keyboard.append([InlineKeyboardButton(text=t(user_id, "back_btn"), callback_data="rust_plus_menu")])
+
+    await callback.message.edit_text(
+        t(user_id, "rp_online_title"),
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard),
+        parse_mode="Markdown"
+    )
+    await callback.answer()
+
+@router.callback_query(F.data == "rp_tab_map_click")
+async def rp_tab_map_handler(callback: CallbackQuery):
+    user_id = callback.from_user.id
+    servers = user_servers.get(user_id, [])
+    
+    keyboard = []
+    for idx, s in enumerate(servers):
+        keyboard.append([InlineKeyboardButton(text=f"🗺 {s['name']} ({s['ip']})", callback_data=f"rp_map_srv_{idx}")])
+    
+    keyboard.append([
+        InlineKeyboardButton(text=t(user_id, "btn_add_server"), callback_data="rp_add_srv"),
+        InlineKeyboardButton(text=t(user_id, "btn_delete_server"), callback_data="rp_del_srv_menu")
+    ])
+    keyboard.append([InlineKeyboardButton(text=t(user_id, "back_btn"), callback_data="rust_plus_menu")])
+
+    await callback.message.edit_text(
+        t(user_id, "rp_map_title"),
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard),
+        parse_mode="Markdown"
+    )
+    await callback.answer()
+
+@router.callback_query(F.data == "rp_tab_third_click")
+async def rp_tab_third_handler(callback: CallbackQuery):
+    user_id = callback.from_user.id
+    keyboard = [[InlineKeyboardButton(text=t(user_id, "back_btn"), callback_data="rust_plus_menu")]]
+    await callback.message.edit_text(
+        "⚙️ **Настройки / Прочее**\n\nЗдесь в будущем могут располагаться дополнительные параметры интеграции.",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard),
+        parse_mode="Markdown"
+    )
+    await callback.answer()
+
+@router.callback_query(F.data == "rp_add_srv")
+async def rp_add_srv_handler(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
     await callback.message.edit_text(
-        t(user_id, "net_prompt"),
+        t(user_id, "rp_prompt_ip"),
         reply_markup=back_keyboard(user_id),
         parse_mode="Markdown"
     )
-    await state.set_state(RustPlusState.waiting_for_server_ip)
+    await state.set_state(RustPlusFlowState.waiting_for_ip)
     await callback.answer()
 
-@router.message(RustPlusState.waiting_for_server_ip)
-async def process_server_ip_query(message: Message, state: FSMContext):
+@router.message(RustPlusFlowState.waiting_for_ip)
+async def rp_process_ip(message: Message, state: FSMContext):
     user_id = message.from_user.id
     raw_input = message.text.strip()
     try:
@@ -312,53 +438,154 @@ async def process_server_ip_query(message: Message, state: FSMContext):
     except Exception:
         pass
 
-    clean_input = re.sub(r'^connect\s+', '', raw_input, flags=re.IGNORECASE).strip()
+    clean_ip = re.sub(r'^connect\s+', '', raw_input, flags=re.IGNORECASE).strip()
+    await state.update_data(temp_ip=clean_ip)
 
-    if ":" not in clean_input:
-        await message.answer(t(user_id, "net_bad_format"), parse_mode="Markdown")
-        return
+    await message.answer(
+        t(user_id, "rp_prompt_name"),
+        reply_markup=back_keyboard(user_id),
+        parse_mode="Markdown"
+    )
+    await state.set_state(RustPlusFlowState.waiting_for_name)
 
-    ip, port_str = clean_input.split(":", 1)
+@router.message(RustPlusFlowState.waiting_for_name)
+async def rp_process_name(message: Message, state: FSMContext):
+    user_id = message.from_user.id
+    srv_name = message.text.strip()
     try:
-        port = int(port_str)
-    except ValueError:
-        await message.answer(t(user_id, "net_bad_port"))
-        return
+        await message.delete()
+    except Exception:
+        pass
 
-    wait_msg = await message.answer(t(user_id, "net_polling"))
+    data = await state.get_data()
+    temp_ip = data.get("temp_ip", "0.0.0.0:28015")
+
+    if user_id not in user_servers:
+        user_servers[user_id] = []
+    
+    user_servers[user_id].append({"ip": temp_ip, "name": srv_name})
     await state.clear()
 
-    try:
-        address = (ip, port)
-        info = a2s.info(address, timeout=4.0)
-        
-        response_text = t(
-            user_id, "net_online",
-            name=info.server_name,
-            map=info.map_name,
-            players=info.player_count,
-            max_players=info.max_players,
-            ping=round(info.ping * 1000),
-            version=info.version
-        )
-        
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text=t(user_id, "btn_check_another"), callback_data="rust_plus_menu")],
-            [InlineKeyboardButton(text=t(user_id, "home_btn"), callback_data="go_home")]
-        ])
-        
-        await wait_msg.edit_text(response_text, parse_mode="Markdown", reply_markup=keyboard)
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🟢 К списку онлайн", callback_data="rp_tab_online_click")],
+        [InlineKeyboardButton(text=t(user_id, "home_btn"), callback_data="go_home")]
+    ])
+    await message.answer(t(user_id, "rp_server_added"), reply_markup=keyboard, parse_mode="Markdown")
 
-    except Exception as e:
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text=t(user_id, "btn_retry"), callback_data="rust_plus_menu")],
-            [InlineKeyboardButton(text=t(user_id, "home_btn"), callback_data="go_home")]
-        ])
-        await wait_msg.edit_text(
-            t(user_id, "net_error", ip=clean_input, err=e),
-            parse_mode="Markdown",
-            reply_markup=keyboard
-        )
+@router.callback_query(F.data == "rp_del_srv_menu")
+async def rp_del_srv_menu(callback: CallbackQuery):
+    user_id = callback.from_user.id
+    servers = user_servers.get(user_id, [])
+    if not servers:
+        await callback.answer(t(user_id, "rp_no_servers"), show_alert=True)
+        return
+
+    keyboard = []
+    for idx, s in enumerate(servers):
+        keyboard.append([InlineKeyboardButton(text=f"❌ {s['name']}", callback_data=f"rp_del_confirm_{idx}")])
+    keyboard.append([InlineKeyboardButton(text=t(user_id, "back_btn"), callback_data="rust_plus_menu")])
+
+    await callback.message.edit_text(
+        t(user_id, "rp_select_to_del"),
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard),
+        parse_mode="Markdown"
+    )
+    await callback.answer()
+
+@router.callback_query(F.data.startswith("rp_del_confirm_"))
+async def rp_del_confirm(callback: CallbackQuery):
+    user_id = callback.from_user.id
+    idx = int(callback.data.split("_")[3])
+    
+    if user_id in user_servers and len(user_servers[user_id]) > idx:
+        user_servers[user_id].pop(idx)
+
+    await callback.answer(t(user_id, "rp_deleted"), show_alert=True)
+    await rust_plus_menu_handler(callback, FSMContext(storage=dp.storage, key=dp.storage.storage_key(bot=bot, chat_id=callback.message.chat.id, user_id=user_id)))
+
+@router.callback_query(F.data.startswith("rp_online_srv_"))
+async def rp_online_srv_click(callback: CallbackQuery, state: FSMContext):
+    user_id = callback.from_user.id
+    idx = int(callback.data.split("_")[3])
+    servers = user_servers.get(user_id, [])
+    
+    if idx >= len(servers):
+        await callback.answer("Сервер не найден", show_alert=True)
+        return
+        
+    srv = servers[idx]
+    await state.update_data(active_srv=srv)
+    await state.set_state(RustPlusFlowState.waiting_for_players_input)
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=t(user_id, "back_btn"), callback_data="rp_tab_online_click")]])
+    await callback.message.edit_text(
+        f"🌐 **Сервер:** `{srv['name']}` (`{srv['ip']}`)\n\n" + t(user_id, "rp_online_instruction"),
+        reply_markup=keyboard,
+        parse_mode="Markdown"
+    )
+    await callback.answer()
+
+@router.callback_query(F.data.startswith("rp_map_srv_"))
+async def rp_map_srv_click(callback: CallbackQuery, state: FSMContext):
+    user_id = callback.from_user.id
+    idx = int(callback.data.split("_")[3])
+    servers = user_servers.get(user_id, [])
+    
+    if idx >= len(servers):
+        await callback.answer("Сервер не найден", show_alert=True)
+        return
+        
+    srv = servers[idx]
+    await state.update_data(active_srv=srv)
+    await state.set_state(RustPlusFlowState.waiting_for_map_input)
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=t(user_id, "back_btn"), callback_data="rp_tab_map_click")]])
+    await callback.message.edit_text(
+        f"🗺 **Сервер:** `{srv['name']}` (`{srv['ip']}`)\n\n" + t(user_id, "rp_map_instruction"),
+        reply_markup=keyboard,
+        parse_mode="Markdown"
+    )
+    await callback.answer()
+
+@router.message(RustPlusFlowState.waiting_for_players_input)
+async def rp_receive_players_list(message: Message, state: FSMContext):
+    user_id = message.from_user.id
+    players_text = message.text.strip()
+    try:
+        await message.delete()
+    except Exception:
+        pass
+
+    data = await state.get_data()
+    srv = data.get("active_srv", {"name": "Server"})
+    await state.clear()
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🟢 Назад к списку онлайн", callback_data="rp_tab_online_click")],
+        [InlineKeyboardButton(text=t(user_id, "home_btn"), callback_data="go_home")]
+    ])
+    await message.answer(
+        f"{t(user_id, 'rp_list_received', name=srv['name'])}\n\n📋 **Полученные данные:**\n{players_text[:1000]}...",
+        reply_markup=keyboard,
+        parse_mode="Markdown"
+    )
+
+@router.message(RustPlusFlowState.waiting_for_map_input, F.photo)
+async def rp_receive_map_image(message: Message, state: FSMContext):
+    user_id = message.from_user.id
+    data = await state.get_data()
+    srv = data.get("active_srv", {"name": "Server"})
+    await state.clear()
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🗺 Назад к списку карт", callback_data="rp_tab_map_click")],
+        [InlineKeyboardButton(text=t(user_id, "home_btn"), callback_data="go_home")]
+    ])
+    await message.answer(
+        t(user_id, "rp_map_received"),
+        reply_markup=keyboard,
+        parse_mode="Markdown"
+    )
 
 # --- КАЛЬКУЛЯТОР РЕЙДА ---
 
@@ -457,12 +684,11 @@ async def about_bot(callback: CallbackQuery):
 @router.callback_query(F.data.startswith("set_lang_"))
 async def set_language_callback(callback: CallbackQuery):
     user_id = callback.from_user.id
-    lang_code = callback.data.split("_")[2] # ru, en, uk
+    lang_code = callback.data.split("_")[2]
     if lang_code in LANGS:
         user_languages[user_id] = lang_code
     
     await callback.answer(t(user_id, "lang_changed"), show_alert=True)
-    # Возвращаем пользователя в обновленное главное меню
     await go_home(callback, FSMContext(storage=dp.storage, key=dp.storage.storage_key(bot=bot, chat_id=user_id, user_id=user_id)))
 
 # --- ПОИСК STEAM ---
