@@ -26,7 +26,6 @@ tracked_players_list = {}
 search_cache = {}
 last_search_message = {}
 user_languages = {}
-
 user_servers = {}
 
 LANGS = {
@@ -41,6 +40,7 @@ LANGS = {
         "btn_raid": "💥 Калькулятор рейда",
         "btn_tracked": "👁 Мои отслеживания",
         "btn_zayats": "🐰 Заяц",
+        "btn_about": "ℹ️ О боте / Язык",
         "zayats_prompt": "🐰 **Режим Заяц**\n\nОтправьте мне **Steam ID 64** игрока, чтобы узнать, на каком сервере он сейчас играет:",
         "zayats_not_found": "❌ Игрок не найден или профиль скрыт.",
         "about_text": (
@@ -97,9 +97,9 @@ LANGS = {
         "btn_raid": "💥 Raid Calculator",
         "btn_tracked": "👁 My Tracked Players",
         "btn_zayats": "🐰 Zayats",
+        "btn_about": "ℹ️ About Bot / Language",
         "zayats_prompt": "🐰 **Zayats Mode**\n\nSend me player's **Steam ID 64** to find out what server they are playing on:",
         "zayats_not_found": "❌ Player not found or profile is private.",
-        "btn_about": "ℹ️ About Bot",
         "about_text": "ℹ️ **About Bot:**",
         "lang_changed": "✅ Language successfully changed to English!",
         "rust_plus_menu_title": "⚡️ **Rust+ Menu**",
@@ -150,9 +150,9 @@ LANGS = {
         "btn_raid": "💥 Рейд",
         "btn_tracked": "👁 Відстеження",
         "btn_zayats": "🐰 Заєць",
+        "btn_about": "ℹ️ Про бота / Мова",
         "zayats_prompt": "🐰 **Режим Заєць**\n\nНадішліть **Steam ID 64** гравця, щоб дізнатися сервер, на якому він грає:",
         "zayats_not_found": "❌ Гравця не знайдено або профіль приховано.",
-        "btn_about": "ℹ️ Про бота",
         "about_text": "ℹ️ **Про бота:**",
         "lang_changed": "✅ Мову змінено!",
         "rust_plus_menu_title": "⚡️ **Меню Rust+**",
@@ -895,9 +895,9 @@ async def check_rust_bans(callback: CallbackQuery):
     await callback.answer(ban_info, show_alert=True)
 
 # --- ФОНОВЕ ВІДСТЕЖЕННЯ ГРАВЦІВ ---
-async def player_monitor_loop(user_id: int, steam_id: int | str):
-    """Фонова задача для перевірки статусу гравця у Rust кожні 30 секунд"""
-    was_in_rust = None  # None на старті, щоб піймати первісний стан
+async def player_monitor_loop(user_id: int, steam_id: str):
+    """Фонова задача для постійного моніторингу статусу гравця у Rust кожні 30 секунд"""
+    was_in_rust = None  # Инициализируем None, чтобы зафиксировать первый реальный статус при старте
     
     while True:
         try:
@@ -913,21 +913,20 @@ async def player_monitor_loop(user_id: int, steam_id: int | str):
                         game_ext_info = p.get("gameextrainfo", "")
                         
                         is_currently_in_rust = (gameid == "252490" or "Rust" in game_ext_info)
-                        server_name = game_ext_info if game_ext_info else "Official Server"
+                        server_name = game_ext_info if game_ext_info else "Official / Community Server"
 
+                        # Проверяем изменения состояния только после первой успешной проверки
                         if was_in_rust is not None:
-                            # Перевірка на входження в Rust
                             if not was_in_rust and is_currently_in_rust:
                                 await bot.send_message(
                                     user_id,
                                     f"🟢 **ВНИМАНИЕ!** Отслеживаемый игрок **{name}** (`{steam_id}`) **зашел в Rust**!\n🌐 Сервер: `{server_name}`",
                                     parse_mode="Markdown"
                                 )
-                            # Перевірка на вихід з Rust
                             elif was_in_rust and not is_currently_in_rust:
                                 await bot.send_message(
                                     user_id,
-                                    f"🔴 **ВНИМАНИЕ!** Игрок **{name}** (`{steam_id}`) **вышел из Rust**.",
+                                    f"🔴 **ВНИМАНИЕ!** Игрок **{name}** (`{steam_id}`) **вышел из игры**.",
                                     parse_mode="Markdown"
                                 )
 
@@ -947,11 +946,11 @@ async def start_track_player(callback: CallbackQuery):
     if user_id not in tracked_players_list:
         tracked_players_list[user_id] = {}
 
-    # Якщо задача вже йде, зупиняємо її перед запуском нової
+    # Если трекер уже работал для этого игрока, перезапускаем его
     if steam_id in active_trackers[user_id]:
         active_trackers[user_id][steam_id].cancel()
 
-    # Запускаємо фоновий цикл
+    # Запуск фонового процесса
     task = asyncio.create_task(player_monitor_loop(user_id, steam_id))
     active_trackers[user_id][steam_id] = task
     tracked_players_list[user_id][steam_id] = steam_id
