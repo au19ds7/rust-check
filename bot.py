@@ -448,5 +448,5 @@ async def rp_online_srv_click(callback: CallbackQuery, state: FSMContext):
     history_snippet = result['history'][:1500]
     response_text = (
         f"📊 **Сервер:** `{result['server_name']}`\n\n"
-        f"🕒 **История онлайна (BattleMetrics):**\n"
+        "🕒 **История онлайна (BattleMetrics):**\n"
         "```text\n" + history_snippet + "\n
