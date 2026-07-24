@@ -161,7 +161,7 @@ async def about_bot(callback: CallbackQuery):
 @router.callback_query(F.data == "start_search_id")
 async def start_search_id(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text(
-        "Отправьте мне **Steam ID** (например, `76561198000000000`):",
+        "Отправьте мне **Steam ID**, ссылку или кастомный ID (например, `76561198000000000` или `numberonerust`):",
         reply_markup=back_keyboard(callback.from_user.id),
         parse_mode="Markdown"
     )
@@ -196,7 +196,7 @@ async def process_steam_id_input(message: Message, state: FSMContext):
                 if response_block.get("success") == 1:
                     user_input = response_block.get("steamid")
                 else:
-                    await message.answer("❌ Игрок не найден. Проверьте правильность Steam ID или ссылки.", reply_markup=back_keyboard(message.chat.id))
+                    await message.answer("❌ Игрок не найден. Проверьте правильность Steam ID, кастомного имени или ссылки.", reply_markup=back_keyboard(message.chat.id))
                     await state.clear()
                     return
 
@@ -206,7 +206,6 @@ async def process_steam_id_input(message: Message, state: FSMContext):
 async def process_nickname_input(message: Message, state: FSMContext):
     query = message.text.strip()
     
-    # Очищаем ввод на случай, если пользователь скинул полноценную ссылку вида steamcommunity.com/id/numberonerust
     if "steamcommunity.com/id/" in query:
         query = query.rstrip("/").split("/")[-1]
     elif "steamcommunity.com/profiles/" in query:
@@ -214,7 +213,6 @@ async def process_nickname_input(message: Message, state: FSMContext):
 
     msg = await message.answer("🔍 Ищу игроков...")
 
-    # Сначала проверяем, не является ли запрос кастомным ID (vanity url) вроде "numberonerust"
     async with aiohttp.ClientSession() as session:
         vanity_url = f"https://api.steampowered.com/ISteamUser/ResolveVanityURL/v0001/?key={STEAM_API_KEY}&vanityurl={query}"
         async with session.get(vanity_url) as resp:
@@ -226,7 +224,6 @@ async def process_nickname_input(message: Message, state: FSMContext):
                 await show_player_profile(message, steam_id, state)
                 return
 
-    # Если через API кастомный ID не нашелся, запускаем стандартный поиск по нику через парсинг страницы Steam
     search_url = f"https://steamcommunity.com/search/users/?text={quote(query)}&l=russian"
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
 
