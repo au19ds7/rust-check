@@ -326,7 +326,7 @@ async def set_language_handler(callback: CallbackQuery):
         parse_mode="Markdown"
     )
 
-# --- ПОИСК ПО STEAM ID ---
+# --- ПОИСК ПО STEAM ID / ССЫЛКЕ / НИКНЕЙМУ ---
 @router.callback_query(F.data == "start_search_id")
 async def start_search_id(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
@@ -354,10 +354,8 @@ async def process_steam_id_input(message: Message, state: FSMContext):
         steam_id = await resolve_vanity_url(vanity)
     elif "steamcommunity.com/profiles/" in text:
         steam_id = text.rstrip("/").split("/")[-1]
-    elif not text.isdigit():
-        resolved_id = await resolve_vanity_url(text)
-        if resolved_id:
-            steam_id = resolved_id
+    else:
+        steam_id = await resolve_vanity_url(text)
 
     msg_id = last_search_message.get(user_id)
     if msg_id:
@@ -368,14 +366,28 @@ async def process_steam_id_input(message: Message, state: FSMContext):
 
     await show_player_profile_by_id(user_id, steam_id, msg_id, state)
 
-async def resolve_vanity_url(vanity: str) -> str:
-    url = f"https://api.steampowered.com/ISteamUser/ResolveVanityURL/v0001/?key={STEAM_API_KEY}&vanityurl={vanity}"
+async def resolve_vanity_url(query: str) -> str:
+    if query.isdigit() and len(query) == 17:
+        return query
+
+    url = f"https://api.steampowered.com/ISteamUser/ResolveVanityURL/v0001/?key={STEAM_API_KEY}&vanityurl={query}"
     async with aiohttp.ClientSession() as session:
         async with session.get(url) as resp:
             data = await resp.json()
             if data.get("response", {}).get("success") == 1:
                 return data["response"]["steamid"]
-    return vanity
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"https://steamcommunity.com/search/suggesthandler/?text={quote(query)}&category=users&cc=US&l=english&json=1") as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    if data and isinstance(data, list) and "steamid" in data[0]:
+                        return data[0]["steamid"]
+    except Exception as e:
+        logging.error(f"Fallback nick search error: {e}")
+
+    return query
 
 async def show_player_profile_by_id(user_id: int, steam_id: str, msg_id: int, state: FSMContext):
     url = f"https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v0002/?key={STEAM_API_KEY}&steamids={steam_id}"
