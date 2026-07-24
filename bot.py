@@ -136,7 +136,7 @@ async def rust_plus_menu_handler(callback: CallbackQuery, state: FSMContext):
 async def rp_add_server_handler(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text(
         "🌐 **Введите IP-адрес и порт сервера Rust**\n\n"
-        "Например: `193.70.81.30:28015`",
+        "Например: `193.70.81.30:28015` (можно вставлять вместе с `connect`)",
         reply_markup=back_keyboard(callback.from_user.id),
         parse_mode="Markdown"
     )
@@ -151,11 +151,14 @@ async def process_server_ip_query(message: Message, state: FSMContext):
     except Exception:
         pass
 
-    if ":" not in raw_input:
+    # Очищаем ввод от слова "connect" и лишних пробелов (регистронезависимо)
+    clean_input = re.sub(r'^connect\s+', '', raw_input, flags=re.IGNORECASE).strip()
+
+    if ":" not in clean_input:
         await message.answer("❌ Неверный формат. Используйте формат `IP:Порт` (например: `193.70.81.30:28015`)", parse_mode="Markdown")
         return
 
-    ip, port_str = raw_input.split(":", 1)
+    ip, port_str = clean_input.split(":", 1)
     try:
         port = int(port_str)
     except ValueError:
@@ -192,7 +195,7 @@ async def process_server_ip_query(message: Message, state: FSMContext):
             [InlineKeyboardButton(text="⬅️ Главное меню", callback_data="go_home")]
         ])
         await wait_msg.edit_text(
-            f"❌ Не удалось подключиться к серверу `{raw_input}`.\n\n"
+            f"❌ Не удалось подключиться к серверу `{clean_input}`.\n\n"
             f"Возможные причины:\n"
             f"• Указан неверный IP или порт\n"
             f"• Сервер выключен или перезагружается\n"
