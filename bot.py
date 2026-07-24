@@ -48,7 +48,6 @@ async def cmd_start(message: Message, state: FSMContext):
 @router.callback_query(F.data == "go_home")
 async def go_home(callback: CallbackQuery, state: FSMContext):
     await state.clear()
-    # Используем edit_text или send_message в зависимости от того, откуда пришел вызов
     try:
         await callback.message.edit_text(
             "Главное меню. Выберите действие:",
@@ -149,7 +148,7 @@ async def track_player(callback: CallbackQuery):
     async def background_tracker():
         async with aiohttp.ClientSession() as session:
             last_status = None
-            for _ in range(30):  # Проверяем статус в течение некоторого времени
+            for _ in range(30):
                 await asyncio.sleep(60)
                 url = f"https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v0002/?key={STEAM_API_KEY}&steamids={steam_id}"
                 async with session.get(url) as resp:
@@ -171,6 +170,7 @@ async def track_player(callback: CallbackQuery):
 async def main():
     dp.include_router(router)
     await bot.delete_webhook(drop_pending_updates=True)
+    print("Бот успешно запущен и готов к работе!")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
