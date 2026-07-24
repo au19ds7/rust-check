@@ -308,7 +308,6 @@ async def process_zayats_input(message: Message, state: FSMContext):
 
     msg_id = last_search_message.get(user_id)
 
-    # Очищаем ссылки если ввели полный URL
     if "steamcommunity.com/id/" in user_input:
         user_input = user_input.rstrip("/").split("/")[-1]
     elif "steamcommunity.com/profiles/" in user_input:
@@ -318,7 +317,6 @@ async def process_zayats_input(message: Message, state: FSMContext):
     if user_input.isdigit() and len(user_input) == 17:
         steam_id = user_input
     else:
-        # Пытаемся разрешить кастомный буквенный ID через Steam API
         async with aiohttp.ClientSession() as session:
             vanity_url = f"https://api.steampowered.com/ISteamUser/ResolveVanityURL/v0001/?key={STEAM_API_KEY}&vanityurl={user_input}"
             async with session.get(vanity_url) as resp:
@@ -327,58 +325,41 @@ async def process_zayats_input(message: Message, state: FSMContext):
                     steam_id = data.get("response", {}).get("steamid")
 
     if not steam_id:
-        steam_id = user_input # Если не получилось через API, пробуем передать как есть
+        steam_id = user_input
 
-    # Парсим сайт rust.destiny.ie
     server_found = None
-    player_name = "Игрок"
     
     async with aiohttp.ClientSession() as session:
-        search_url = f"https://rust.destiny.ie/ru/search?q={quote(steam_id)}"
+        api_search_url = f"https://rust.destiny.ie/api/search?q={quote(steam_id)}"
         headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "application/json"
         }
         try:
-            async with session.get(search_url, headers=headers) as resp:
+            async with session.get(api_search_url, headers=headers) as resp:
                 if resp.status == 200:
-                    html_content = await resp.text()
-                    soup = BeautifulSoup(html_content, 'html.parser')
-                    
-                    # Ищем блоки с точным совпадением или карточки результатов
-                    # На сайте rust.destiny.ie текст текущего сервера находится в блоках с текстом "ТЕКУЩИЙ СЕРВЕР"
-                    cards = soup.find_all(text=re.compile("ТЕКУЩИЙ СЕРВЕР", re.IGNORECASE))
-                    if not cards:
-                        # Пробуем искать по тегам карточек
-                        cards = soup.find_all(class_=re.compile("card|result|player", re.IGNORECASE))
+                    try:
+                        data_json = await resp.json()
+                        if isinstance(data_json, list) and len(data_json) > 0:
+                            server_found = data_json[0].get("server") or data_json[0].get("currentServer")
+                        elif isinstance(data_json, dict):
+                            server_found = data_json.get("server") or data_json.get("current_server")
+                    except Exception:
+                        pass
+        except Exception as e:
+            logging.error(f"Ошибка API запроса: {e}")
 
-                    for card in soup.find_all(['div', 'section', 'article']):
-                        text_full = card.get_text()
-                        if "ТЕКУЩИЙ СЕРВЕР" in text_full or "ID " in text_full:
-                            # Извлекаем название сервера
-                            lines = text_full.split('\n')
-                            for line in lines:
-                                if "ТЕКУЩИЙ СЕРВЕР" in line:
-                                    server_found = line.replace("ТЕКУЩИЙ СЕРВЕР", "").strip()
-                                    break
-                            if not server_found:
-                                # Пробуем найти по соседним элементам
-                                server_div = card.find(text=re.compile("ТЕКУЩИЙ СЕРВЕР"))
-                                if server_div and server_div.parent:
-                                    server_found = server_div.parent.get_text().replace("ТЕКУЩИЙ СЕРВЕР", "").strip()
-                            
-                            # Имя игрока
-                            name_tag = card.find(['h3', 'h4', 'span', 'div'], class_=re.compile("name|title", re.IGNORECASE))
-                            if name_tag:
-                                player_name = name_tag.get_text().strip()
-                            break
-                    
-                    # Запасной вариант через регулярку по всему HTML, если структура сложная
-                    if not server_found:
-                        match_srv = re.search(r'ТЕКУЩИЙ СЕРВЕР\s*([^\n<]+)', html_content)
+        if not server_found:
+            search_url = f"https://rust.destiny.ie/ru/search?q={quote(steam_id)}"
+            try:
+                async with session.get(search_url, headers=headers) as resp:
+                    if resp.status == 200:
+                        html_content = await resp.text()
+                        match_srv = re.search(r'ТЕКУЩИЙ СЕРВЕР["\s>]+([^<"]+)', html_content, re.IGNORECASE)
                         if match_srv:
                             server_found = match_srv.group(1).strip()
-        except Exception as e:
-            logging.error(f"Ошибка при парсинге rust.destiny.ie: {e}")
+            except Exception as e:
+                logging.error(f"Ошибка HTML парсинга: {e}")
 
     if not server_found:
         if msg_id:
@@ -953,7 +934,6 @@ async def check_rust_bans(callback: CallbackQuery):
     ban_info = t(user_id, "bans_msg", sid=steam_id)
     await callback.answer(ban_info, show_alert=True)
 
-# --- ФОНОВЕ ВІДСТЕЖЕННЯ ГРАВЦІВ ---
 async def player_monitor_loop(user_id: int, steam_id: str):
     was_in_rust = None
     
