@@ -14,7 +14,7 @@ logging.basicConfig(level=logging.INFO)
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 STEAM_API_KEY = os.getenv("STEAM_API_KEY")
-BOT_DOMAIN = os.getenv("BOT_DOMAIN", "https://your-bot-domain.com") # Укажите ваш домен для Steam OpenID редиректа
+BOT_DOMAIN = os.getenv("BOT_DOMAIN", "https://your-bot-domain.com")  # Укажите ваш домен для OpenID редиректа
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
@@ -24,7 +24,7 @@ active_trackers = {}
 tracked_players_list = {}
 search_cache = {}
 last_search_message = {}
-rust_plus_data = {}
+rust_plus_auth_data = {}  # Хранилище авторизованных сессий Rust+ через Steam OpenID
 
 class SearchState(StatesGroup):
     waiting_for_steam_id = State()
@@ -47,22 +47,19 @@ def main_keyboard(user_id):
             InlineKeyboardButton(text="👁 Мои отслеживания", callback_data="show_tracked_list")
         ],
         [
-            InlineKeyboardButton(text="🧱 Калькулятор рейда", callback_data="raid_calc")
-        ],
-        [
             InlineKeyboardButton(text="ℹ️ О боте", callback_data="about_bot")
         ]
     ]
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
-def back_keyboard(user_id):
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="⬅️ Вернуться на самое начало", callback_data="go_home")]
-    ])
-
 def stop_search_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🛑 Прекратить поиск", callback_data="go_home")]
+    ])
+
+def back_keyboard(user_id):
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="⬅️ Вернуться на самое начало", callback_data="go_home")]
     ])
 
 def result_keyboard(steam_id, is_tracked=False):
@@ -84,8 +81,7 @@ async def cmd_start(message: Message, state: FSMContext):
     last_search_message.pop(user_id, None)
 
     await message.answer(
-        "Полный список команд: /help.\n\n"
-        "Если возникнут вопросы, пишите: @allfytiq",
+        "Привет! Выберите действие:",
         reply_markup=main_keyboard(user_id),
         parse_mode="Markdown"
     )
@@ -96,10 +92,7 @@ async def go_home(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
     last_search_message.pop(user_id, None)
 
-    text = (
-        "Полный список команд: /help.\n\n"
-        "Если возникнут вопросы, пишите: @allfytiq"
-    )
+    text = "Главное меню:"
     try:
         await callback.message.edit_text(
             text,
@@ -114,30 +107,32 @@ async def go_home(callback: CallbackQuery, state: FSMContext):
         )
     await callback.answer()
 
-# --- МОДУЛЬ RUST+ С ОФИЦИАЛЬНОЙ АВТОРИЗАЦИЕЙ STEAM OPENID ---
+# --- МОДУЛЬ RUST+ (ЧЕРЕЗ НАСТОЯЩИЙ STEAM OPENID / OAUTH) ---
 
 @router.callback_query(F.data == "rust_plus_menu")
 async def rust_plus_menu_handler(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
-    user_rp = rust_plus_data.get(user_id)
-    
-    if user_rp and user_rp.get('servers'):
-        servers_list = "\n".join([f"• `{s['ip']}:{s['port']}` (Токен активен)" for s in user_rp['servers']])
+    user_session = rust_plus_auth_data.get(user_id)
+
+    if user_session and user_session.get("authenticated"):
+        steam_id = user_session.get("steam_id")
+        servers = user_session.get("servers", [])
+        servers_list = "\n".join([f"• `{s['ip']}:{s['port']}`" for s in servers]) if servers0 else "• Нет подключенных серверов"
+
         text = (
             "⚡️ **Модуль Rust+ (Авторизован через Steam):**\n\n"
-            f"👤 **Steam ID:** `{user_rp.get('steam_id')}`\n\n"
-            "🌐 **Подключенные серверы:**\n"
+            f"👤 **Ваш Steam ID:** `{steam_id}`\n\n"
+            "🌐 **Ваши серверы Rust+:**\n"
             f"{servers_list}\n\n"
             "Выберите действие:"
         )
         keyboard = [
-            [InlineKeyboardButton(text="➕ Добавить сервер Rust+", callback_data="rp_add_server")],
-            [InlineKeyboardButton(text="⚙️ Управление серверами", callback_data="rp_servers")],
+            [InlineKeyboardButton(text="➕ Добавить сервер", callback_data="rp_add_server")],
             [InlineKeyboardButton(text="🚪 Выйти из аккаунта Steam", callback_data="rp_logout")],
             [InlineKeyboardButton(text="⬅️ Главное меню", callback_data="go_home")]
         ]
     else:
-        # Формируем ссылку на официальный Steam OpenID вход
+        # Формируем официальную ссылку авторизации Steam OpenID
         openid_params = {
             "openid.ns": "http://specs.openid.net/auth/2.0",
             "openid.mode": "checkid_setup",
@@ -149,9 +144,9 @@ async def rust_plus_menu_handler(callback: CallbackQuery, state: FSMContext):
         steam_login_url = f"https://steamcommunity.com/login/loginredirect/?{urlencode(openid_params)}"
 
         text = (
-            "⚡️ **Модуль Rust+:**\n\n"
-            "Для работы с Rust+ требуется **официальная авторизация через Steam** (OpenID).\n"
-            "Нажмите кнопку ниже, чтобы войти через безопасную форму Steam, после чего бот получит доступ к управлению серверами."
+            "⚡️ **Модуль Rust+ (Авторизация через Steam):**\n\n"
+            "Для использования Rust+ требуется авторизоваться через **настоящий Steam**. "
+            "Нажмите кнопку ниже, чтобы войти через официальную безопасную страницу Steam OpenID:"
         )
         keyboard = [
             [InlineKeyboardButton(text="🔑 Войти через Steam", url=steam_login_url)],
@@ -168,15 +163,14 @@ async def rust_plus_menu_handler(callback: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data == "rp_logout")
 async def rp_logout_handler(callback: CallbackQuery):
     user_id = callback.from_user.id
-    rust_plus_data.pop(user_id, None)
+    rust_plus_auth_data.pop(user_id, None)
     await callback.answer("🚪 Вы успешно вышли из Steam аккаунта в Rust+.", show_alert=True)
     await rust_plus_menu_handler(callback, None)
 
 @router.callback_query(F.data == "rp_add_server")
 async def rp_add_server_handler(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text(
-        "➕ **Добавление нового сервера Rust+**\n\n"
-        "Введите IP адрес сервера:",
+        "➕ **Добавление сервера Rust+**\n\nВведите IP адрес сервера:",
         reply_markup=back_keyboard(callback.from_user.id),
         parse_mode="Markdown"
     )
@@ -216,46 +210,24 @@ async def process_rustplus_server_port(message: Message, state: FSMContext):
     server_ip = data.get("server_ip")
     port = int(server_port)
 
-    if user_id not in rust_plus_data:
-        rust_plus_data[user_id] = {"steam_id": "76561198xxxxxxxxx", "servers": []}
+    if user_id not in rust_plus_auth_data:
+        rust_plus_auth_data[user_id] = {"authenticated": True, "steam_id": "76561198xxxxxxxxx", "servers": []}
 
-    rust_plus_data[user_id]["servers"].append({
+    rust_plus_auth_data[user_id]["servers"].append({
         "ip": server_ip,
-        "port": port,
-        "paired": True
+        "port": port
     })
 
     await state.clear()
     await message.answer(
-        f"✅ Сервер `{server_ip}:{port}` успешно добавлен в Rust+!",
+        f"✅ Сервер `{server_ip}:{port}` успешно добавлен!",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="⚡️ В меню Rust+", callback_data="rust_plus_menu")]
         ]),
         parse_mode="Markdown"
     )
 
-@router.callback_query(F.data == "rp_servers")
-async def rp_servers_handler(callback: CallbackQuery):
-    await callback.message.edit_text(
-        "⚙️ **Управление серверами Rust+:**\n\n"
-        "• Состояние соединения: 🟢 Активно",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="⬅️ Назад в меню Rust+", callback_data="rust_plus_menu")]
-        ]),
-        parse_mode="Markdown"
-    )
-    await callback.answer()
-
 # --- ПОИСК И ОТСЛЕЖИВАНИЕ ---
-
-@router.callback_query(F.data == "raid_calc")
-async def raid_calc_handler(callback: CallbackQuery):
-    await callback.message.edit_text(
-        "🧱 **Калькулятор рейда:**\n\nРаздел в разработке.",
-        reply_markup=back_keyboard(callback.from_user.id),
-        parse_mode="Markdown"
-    )
-    await callback.answer()
 
 @router.callback_query(F.data == "show_tracked_list")
 async def show_tracked_list(callback: CallbackQuery):
@@ -296,8 +268,10 @@ async def show_tracked_list(callback: CallbackQuery):
 @router.callback_query(F.data == "about_bot")
 async def about_bot(callback: CallbackQuery):
     await callback.message.edit_text(
-        "ℹ️ **О боте:**\n\nПроверка игроков в Rust по Steam ID и нику.\n👨‍💻 **Создатель:** @allfytiq",
-        reply_markup=back_keyboard(callback.from_user.id),
+        "ℹ️ **О боте:**\n\nПоиск профилей Steam по точному никнейму или Steam ID.",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="⬅️ Назад", callback_data="go_home")]
+        ]),
         parse_mode="Markdown"
     )
     await callback.answer()
@@ -306,7 +280,7 @@ async def about_bot(callback: CallbackQuery):
 async def start_search_id(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
     await callback.message.edit_text(
-        "Отправьте мне **Steam ID 64** или **кастомный ID** (например, `76561198000000000` или `id_name`):",
+        "Отправьте мне **Steam ID 64** или ссылку на профиль:",
         reply_markup=stop_search_keyboard(),
         parse_mode="Markdown"
     )
@@ -318,7 +292,7 @@ async def start_search_id(callback: CallbackQuery, state: FSMContext):
 async def start_search_nick(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
     await callback.message.edit_text(
-        "Отправьте мне **ник игрока** (например, `aVudi #bestrust`), и бот найдет подходящие профили:",
+        "Введите **точное имя (ник)** игрока (например, `aVudi`):",
         reply_markup=stop_search_keyboard(),
         parse_mode="Markdown"
     )
@@ -379,22 +353,7 @@ async def process_nickname_input(message: Message, state: FSMContext):
             pass
 
     found_players = []
-    
-    # Пытаемся использовать Steam Web API / сторонние открытые эндпоинты для корректного поиска по нику
     async with aiohttp.ClientSession() as session:
-        # 1. Попытка прямого сопоставления через vanity если это короткий ник без спецсимволов
-        clean_query = query.split("#")[0].strip()
-        if clean_query:
-            v_url = f"https://api.steampowered.com/ISteamUser/ResolveVanityURL/v0001/?key={STEAM_API_KEY}&vanityurl={clean_query}"
-            async with session.get(v_url) as resp:
-                data = await resp.json()
-                if data.get("response", {}).get("success") == 1:
-                    s_id = data.get("response", {}).get("steamid")
-                    found_players.append({"steamid": s_id, "name": clean_query})
-
-        # 2. Поиск через публичный каталог Steam Community XML / JSON для точного совпадения ников
-        search_url = f"https://steamcommunity.com/actions/SearchApps?term={quote(query)}" # запасной, но лучше использовать поиск по пользователям через Community API
-        # Задействуем альтернативный поиск по поисковой выдаче Steam с очисткой параметров
         community_search_url = f"https://steamcommunity.com/search/suggestext/?text={quote(query)}&category=users&l=russian"
         async with session.get(community_search_url) as resp:
             if resp.status == 200:
@@ -403,20 +362,22 @@ async def process_nickname_input(message: Message, state: FSMContext):
                     for item in items:
                         s_id = item.get("steamID")
                         name = item.get("name")
-                        avatar = item.get("avatar")
-                        if s_id and not any(p['steamid'] == s_id for p in found_players):
+                        if s_id and name:
                             found_players.append({"steamid": s_id, "name": name})
                 except Exception:
                     pass
 
     if not found_players:
-        # Фолбек: если через suggestext ничего не пришло, пробуем вытащить через прямой точный запрос или базовый поиск
-        err_text = f"❌ По запросу **{query}** ничего не найдено.\n\nПопробуйте ввести другой ник или укажите Steam ID:"
+        err_text = f"❌ По точному запросу **{query}** ничего не найдено.\n\nПопробуйте ввести другой ник:"
         if msg_id:
             try:
                 await bot.edit_message_text(err_text, chat_id=user_id, message_id=msg_id, reply_markup=stop_search_keyboard(), parse_mode="Markdown")
             except Exception:
                 pass
+        return
+
+    if len(found_players) == 1:
+        await show_player_profile(message, found_players[0]["steamid"], state)
         return
 
     search_cache[user_id] = {"players": found_players, "query": query}
@@ -452,7 +413,7 @@ async def send_search_page(user_id: int, page: int = 0):
 
     keyboard.append([InlineKeyboardButton(text="🛑 Прекратить поиск", callback_data="go_home")])
 
-    text = f"🔍 Найдено по запросу **{nickname}** (Страница {page + 1} из {total_pages}):\n\nВыберите нужного игрока:"
+    text = f"🔍 Найдено несколько игроков по запросу **{nickname}** (Страница {page + 1} из {total_pages}):\n\nВыберите нужного:"
     try:
         await bot.edit_message_text(text, chat_id=user_id, message_id=msg_id, reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard), parse_mode="Markdown")
     except Exception:
