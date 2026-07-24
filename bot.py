@@ -27,7 +27,6 @@ search_cache = {}
 last_search_message = {}
 user_languages = {}
 
-# Хранилище серверов: user_servers[user_id] = ["Название сервера 1", ...]
 user_servers = {}
 
 LANGS = {
@@ -270,14 +269,7 @@ async def go_home(callback: CallbackQuery, state: FSMContext):
     )
     await callback.answer()
 
-# --- АЛГОРИТМ ПОИСКА ПО ТОЧНОМУ НАЗВАНИЮ ЧЕРЕЗ BATTLEMETRICS ---
-
 async def fetch_server_details_by_name(server_name: str):
-    """
-    1. Ищет сервер по точному названию на BattleMetrics.
-    2. Заходит в профиль сервера.
-    3. Копирует историю онлайна (кто заходил/выходил) и возвращает её.
-    """
     async with aiohttp.ClientSession() as session:
         bm_history_text = "История онлайна не найдена."
         headers = {
@@ -289,17 +281,12 @@ async def fetch_server_details_by_name(server_name: str):
             async with session.get(bm_search_url, headers=headers) as resp:
                 if resp.status == 200:
                     bm_html = await resp.text()
-                    
-                    # Ищем ссылку на профиль сервера в результатах поиска BattleMetrics
                     server_link_match = re.search(r'href="(/servers/rust/\d+-[^"]+)"', bm_html)
                     if server_link_match:
                         server_profile_url = f"https://www.battlemetrics.com{server_link_match.group(1)}"
-                        
-                        # Заходим в профиль сервера и парсим историю
                         async with session.get(server_profile_url, headers=headers) as profile_resp:
                             if profile_resp.status == 200:
                                 profile_html = await profile_resp.text()
-                                
                                 history_rows = re.findall(r'<tr[^>]*>(.*?)<\/tr>', profile_html, re.DOTALL)
                                 if history_rows:
                                     extracted = []
@@ -446,7 +433,6 @@ async def rp_online_srv_click(callback: CallbackQuery, state: FSMContext):
     ])
     
     history_snippet = result['history'][:1500]
-    response_text = (
-        f"📊 **Сервер:** `{result['server_name']}`\n\n"
-        "🕒 **История онлайна (BattleMetrics):**\n"
-        "```text\n" + history_snippet + "\n
+    
+    # Исправленный блок без синтаксических ошибок
+    response_text = "📊 **Сервер:** `{}`\n\n🕒 **История онлайна (BattleMetrics):**\n```text\n{}\n
