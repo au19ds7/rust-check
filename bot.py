@@ -445,7 +445,8 @@ async def rp_online_srv_click(callback: CallbackQuery, state: FSMContext):
         [InlineKeyboardButton(text="⬅️ Назад к списку", callback_data="rp_tab_online_click")]
     ])
     
+    history_snippet = result['history'][:1500]
     response_text = (
         f"📊 **Сервер:** `{result['server_name']}`\n\n"
         f"🕒 **История онлайна (BattleMetrics):**\n"
-        f"```text\n{result['history'][:1500]}\n
+        "```text\n" + history_snippet + "\n
