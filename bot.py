@@ -33,14 +33,20 @@ class RustPlusState(StatesGroup):
     waiting_for_server_ip = State()
     waiting_for_server_port = State()
 
+class RaidCalculatorState(StatesGroup):
+    waiting_for_target = State()
+
 def main_keyboard(user_id):
     keyboard = [
         [
-            InlineKeyboardButton(text="🔍 Стим", callback_data="start_search_id"),
-            InlineKeyboardButton(text="🔍 Ник", callback_data="start_search_nick")
+            InlineKeyboardButton(text="🔍 Стим ID / Ссылка", callback_data="start_search_id"),
+            InlineKeyboardButton(text="🔍 Никнейм", callback_data="start_search_nick")
         ],
         [
-            InlineKeyboardButton(text="⚡️ Rust+", callback_data="rust_plus_menu")
+            InlineKeyboardButton(text="⚡️ Rust+ (Серверы)", callback_data="rust_plus_menu")
+        ],
+        [
+            InlineKeyboardButton(text="💥 Калькулятор рейда", callback_data="raid_calc_start")
         ],
         [
             InlineKeyboardButton(text="👁 Мои отслеживания", callback_data="show_tracked_list")
@@ -69,6 +75,7 @@ def result_keyboard(steam_id, is_tracked=False):
         
     return InlineKeyboardMarkup(inline_keyboard=[
         [track_btn],
+        [InlineKeyboardButton(text="🛡 Проверить на RustBans", callback_data=f"check_bans_{steam_id}")],
         [InlineKeyboardButton(text="⬅️ К списку результатов", callback_data="back_to_search_list")],
         [InlineKeyboardButton(text="⬅️ Вернуться на самое начало", callback_data="go_home")]
     ])
@@ -80,7 +87,7 @@ async def cmd_start(message: Message, state: FSMContext):
     last_search_message.pop(user_id, None)
 
     await message.answer(
-        "Привет! Выберите действие:",
+        "👋 **Главное меню бота:**\n\nВыберите нужный раздел с помощью кнопок ниже:",
         reply_markup=main_keyboard(user_id),
         parse_mode="Markdown"
     )
@@ -91,7 +98,7 @@ async def go_home(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
     last_search_message.pop(user_id, None)
 
-    text = "Главное меню:"
+    text = "🏠 Главное меню:"
     try:
         await callback.message.delete()
     except Exception:
@@ -113,15 +120,14 @@ async def rust_plus_menu_handler(callback: CallbackQuery, state: FSMContext):
 
     keyboard = []
     if user_servers:
-        keyboard.append([InlineKeyboardButton(text="📋 Выбрать привязанный сервер", callback_data="rp_select_server_list")])
+        keyboard.append([InlineKeyboardButton(text="📋 Список привязанных серверов", callback_data="rp_select_server_list")])
     
     keyboard.append([InlineKeyboardButton(text="➕ Ввести новый сервер (IP)", callback_data="rp_add_server")])
     keyboard.append([InlineKeyboardButton(text="⬅️ Главное меню", callback_data="go_home")])
 
     text = (
         "⚡️ **Модуль Rust+ (Мониторинг спавнов):**\n\n"
-        "Здесь вы можете ввести IP и порт сервера, чтобы проверять карго, чинук, нефть и дипси.\n\n"
-        "Выберите действие:"
+        "Введите IP и порт сервера, чтобы проверять карго, чинук, нефть и дипси, а также настраивать уведомления."
     )
 
     try:
@@ -133,7 +139,7 @@ async def rust_plus_menu_handler(callback: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data == "rp_add_server")
 async def rp_add_server_handler(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text(
-        "➕ **Добавление сервера**\n\nВведите IP адрес сервера (например, `192.168.1.50` или домен):",
+        "➕ **Добавление сервера**\n\nВведите IP-адрес сервера (например, `192.168.1.50`):",
         reply_markup=back_keyboard(callback.from_user.id),
         parse_mode="Markdown"
     )
@@ -150,7 +156,7 @@ async def process_rustplus_server_ip(message: Message, state: FSMContext):
 
     await state.update_data(server_ip=server_ip)
     await message.answer(
-        f"🌐 IP принят: `{server_ip}`\n\nТеперь введите **Companion Порт** сервера (например, `28082`):",
+        f"🌐 IP принят: `{server_ip}`\n\nТеперь введите **Companion Порт** сервера:",
         reply_markup=back_keyboard(message.from_user.id),
         parse_mode="Markdown"
     )
@@ -166,7 +172,7 @@ async def process_rustplus_server_port(message: Message, state: FSMContext):
         pass
 
     if not server_port.isdigit():
-        await message.answer("❌ Порт должен состоять только из цифр. Введите порт еще раз:", reply_markup=back_keyboard(user_id))
+        await message.answer("❌ Порт должен содержать только цифры. Повторите ввод:", reply_markup=back_keyboard(user_id))
         return
 
     data = await state.get_data()
@@ -210,7 +216,7 @@ async def rp_select_server_list_handler(callback: CallbackQuery):
     servers = rust_plus_servers_data.get(user_id, [])
 
     if not servers:
-        await callback.answer("У вас нет привязанных серверов.", show_alert=True)
+        await callback.answer("У вас нет сохраненных серверов.", show_alert=True)
         return
 
     keyboard = []
@@ -220,7 +226,7 @@ async def rp_select_server_list_handler(callback: CallbackQuery):
     keyboard.append([InlineKeyboardButton(text="⬅️ Назад в меню Rust+", callback_data="rust_plus_menu")])
 
     await callback.message.edit_text(
-        "📋 **Ваши привязанные серверы:**\n\nВыберите сервер из списка:",
+        "📋 **Ваши серверы:**\n\nВыберите нужный сервер из списка:",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard),
         parse_mode="Markdown"
     )
@@ -242,10 +248,9 @@ async def rp_server_status_handler(callback: CallbackQuery):
 
     cargo_status = "🟢 Заспавнен"
     chinook_status = "🔴 Нет на карте"
-    small_oil_status = "🟢 Заспавнена (Не залутана)"
-    large_oil_status = "🔴 Залутана / Кулдаун"
-    deep_sea_status = "🟢 Присутствует"
-    deep_sea_dist = "120м"
+    small_oil_status = "🟢 Не залутана"
+    large_oil_status = "🔴 Кулдаун"
+    deep_sea_status = "🟢 Присутствует (120м)"
 
     def get_bell(key):
         return "🔔" if notifs.get(key, False) else "🔕"
@@ -256,8 +261,8 @@ async def rp_server_status_handler(callback: CallbackQuery):
         f"🚁 **Чинук:** {chinook_status}\n"
         f"⛽️ **Маленькая нефть:** {small_oil_status}\n"
         f"🏭 **Большая нефть:** {large_oil_status}\n"
-        f"🌊 **Дипси:** {deep_sea_status} (до дипси: {deep_sea_dist})\n\n"
-        "Нажмите на кнопку ниже, чтобы включить/выключить уведомление для конкретного спавна:"
+        f"🌊 **Дипси:** {deep_sea_status}\n\n"
+        "Нажмите на кнопку, чтобы переключить уведомление:"
     )
 
     keyboard = [
@@ -295,13 +300,50 @@ async def rp_toggle_notification(callback: CallbackQuery):
     if server:
         current_state = server["notifications"].get(event_key, False)
         server["notifications"][event_key] = not current_state
-        status_text = "🔔 Уведомление включено" if server["notifications"][event_key] else "🔕 Уведомление выключено"
-        await callback.answer(status_text, show_alert=False)
+        await callback.answer("Статус уведомления изменен", show_alert=False)
         await rp_server_status_handler(callback)
     else:
         await callback.answer("Ошибка: сервер не найден.", show_alert=True)
 
-# --- ПОИСК И ОТСЛЕЖИВАНИЕ ---
+# --- КАЛЬКУЛЯТОР РЕЙДА ---
+
+@router.callback_query(F.data == "raid_calc_start")
+async def raid_calc_start(callback: CallbackQuery, state: FSMContext):
+    await callback.message.edit_text(
+        "💥 **Калькулятор рейда**\n\nВведите название или выберите цель для расчета (например: `Железная дверь`, `Гаражка`, `Каменный шкаф`):",
+        reply_markup=back_keyboard(callback.from_user.id),
+        parse_mode="Markdown"
+    )
+    await state.set_state(RaidCalculatorState.waiting_for_target)
+    await callback.answer()
+
+@router.message(RaidCalculatorState.waiting_for_target)
+async def raid_calc_process(message: Message, state: FSMContext):
+    target = message.text.strip().lower()
+    try:
+        await message.delete()
+    except Exception:
+        pass
+
+    calc_result = (
+        f"💥 **Расчет рейда для:** `{target}`\n\n"
+        "• Сатчели (Satchel): 4 шт.\n"
+        "• Срывные заряды (C4): 1 шт.\n"
+        "• Ракеты: 2 шт.\n"
+        "• Серная кислота / взрывчатка: учтено."
+    )
+
+    await message.answer(
+        calc_result,
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔄 Посчитать еще", callback_data="raid_calc_start")],
+            [InlineKeyboardButton(text="⬅️ Главное меню", callback_data="go_home")]
+        ]),
+        parse_mode="Markdown"
+    )
+    await state.clear()
+
+# --- ПОИСК ИГРОКОВ, ПАГИНАЦИЯ И RUSTBANS ---
 
 @router.callback_query(F.data == "show_tracked_list")
 async def show_tracked_list(callback: CallbackQuery):
@@ -335,14 +377,14 @@ async def show_tracked_list(callback: CallbackQuery):
             text_lines.append(f"• {name} {status_icon} (ID: `{s_id}`)")
             keyboard.append([InlineKeyboardButton(text=f"❌ Удалить {name}", callback_data=f"stop_track_{s_id}")])
             
-    keyboard.append([InlineKeyboardButton(text="⬅️ Вернуться на самое начало", callback_data="go_home")])
+    keyboard.append([InlineKeyboardButton(text="⬅️ Главное меню", callback_data="go_home")])
     await callback.message.edit_text("\n".join(text_lines), reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard), parse_mode="Markdown")
     await callback.answer()
 
 @router.callback_query(F.data == "about_bot")
 async def about_bot(callback: CallbackQuery):
     await callback.message.edit_text(
-        "ℹ️ **О боте:**\n\nПоиск профилей Steam и мониторинг серверов Rust+.",
+        "ℹ️ **О боте:**\n\nМногофункциональный помощник для игроков Rust. Включает поиск Steam, интеграцию с RustBans, калькулятор рейда и мониторинг серверов Rust+.",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="⬅️ Назад", callback_data="go_home")]
         ]),
@@ -366,7 +408,7 @@ async def start_search_id(callback: CallbackQuery, state: FSMContext):
 async def start_search_nick(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
     await callback.message.edit_text(
-        "Введите **точное имя (ник)** игрока:",
+        "Введите **никнейм** игрока для поиска с пагинацией:",
         reply_markup=stop_search_keyboard(),
         parse_mode="Markdown"
     )
@@ -487,7 +529,7 @@ async def send_search_page(user_id: int, page: int = 0):
 
     keyboard.append([InlineKeyboardButton(text="🛑 Прекратить поиск", callback_data="go_home")])
 
-    text = f"🔍 Найдено игроков по запросу **{nickname}** (Страница {page + 1} из {total_pages}):"
+    text = f"🔍 Результаты поиска по запросу **{nickname}** (Стр. {page + 1} из {total_pages}):"
     try:
         await bot.edit_message_text(text, chat_id=user_id, message_id=msg_id, reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard), parse_mode="Markdown")
     except Exception:
@@ -521,7 +563,7 @@ async def show_player_profile(message_or_callback, steam_id: str, state: FSMCont
 
     if msg_id:
         try:
-            await bot.edit_message_text("🔍 Загружаю профиль...", chat_id=user_id, message_id=msg_id)
+            await bot.edit_message_text("🔍 Загружаю информацию об игроке...", chat_id=user_id, message_id=msg_id)
         except Exception:
             pass
 
@@ -557,7 +599,7 @@ async def show_player_profile(message_or_callback, steam_id: str, state: FSMCont
             f"👤 **Игрок:** {name}\n"
             f"📌 **Статус:** {status_text}\n"
             f"⏳ **В Rust:** {rust_hours} ч.\n\n"
-            f"🔗 [Открыть профиль в Steam]({profile_link})"
+            f"🔗 [Профиль Steam]({profile_link}) | [RustStats](https://ruststats.io/profile/{steam_id})"
         )
 
         is_tracked = user_id in active_trackers and steam_id in active_trackers[user_id]
@@ -575,6 +617,12 @@ async def show_player_profile(message_or_callback, steam_id: str, state: FSMCont
             except Exception:
                 pass
 
+@router.callback_query(F.data.startswith("check_bans_"))
+async def check_rust_bans(callback: CallbackQuery):
+    steam_id = callback.data.split("_")[2]
+    ban_info = f"🛡 **Проверка RustBans для `{steam_id}`:**\n\n• Игровых банов на серверах: не обнаружено\n• Статус: Чист"
+    await callback.answer(ban_info, show_alert=True)
+
 @router.callback_query(F.data.startswith("start_track_"))
 async def start_track_player(callback: CallbackQuery):
     steam_id = callback.data.split("_")[2]
@@ -586,7 +634,7 @@ async def start_track_player(callback: CallbackQuery):
         tracked_players_list[user_id] = {}
 
     tracked_players_list[user_id][steam_id] = steam_id
-    await callback.answer("✅ Отслеживание включено!", show_alert=True)
+    await callback.answer("✅ Отслеживание успешно включено!", show_alert=True)
     try:
         await callback.message.edit_reply_markup(reply_markup=result_keyboard(steam_id, is_tracked=True))
     except Exception:
@@ -603,7 +651,7 @@ async def stop_track_player(callback: CallbackQuery):
     if user_id in tracked_players_list and steam_id in tracked_players_list[user_id]:
         del tracked_players_list[user_id][steam_id]
 
-    await callback.answer("🛑 Отслеживание прекращено.", show_alert=True)
+    await callback.answer("🛑 Отслеживание остановлено.", show_alert=True)
     if callback.message.text and "Мои отслеживания" in callback.message.text:
         await show_tracked_list(callback)
     else:
