@@ -434,5 +434,7 @@ async def rp_online_srv_click(callback: CallbackQuery, state: FSMContext):
     
     history_snippet = result['history'][:1500]
     
-    # Исправленный блок без синтаксических ошибок
-    response_text = "📊 **Сервер:** `{}`\n\n🕒 **История онлайна (BattleMetrics):**\n```text\n{}\n
+    response_text = "".join([
+        "📊 **Сервер:** `", result['server_name'], "`\n\n",
+        "🕒 **История онлайна (BattleMetrics):**\n",
+        "```text\n", history_snippet, "\n
