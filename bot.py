@@ -1,6 +1,7 @@
 import os
 import aiohttp
 import asyncio
+from bs4 import BeautifulSoup
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
@@ -16,6 +17,7 @@ router = Router()
 
 active_trackers = {}
 tracked_players_list = {}
+search_cache = {}
 
 class SearchState(StatesGroup):
     waiting_for_steam_id = State()
@@ -199,7 +201,7 @@ async def process_nickname_input(message: Message, state: FSMContext):
     nickname = message.text.strip()
     msg = await message.answer("🔍 Ищу игроков по нику...")
 
-    search_url = f"https://steamcommunity.com/search/render/?text={nickname}&category=users&json=1"
+    search_url = f"https://steamcommunity.com/search/users/?text={quote(nickname)}&l=russian"
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
 
     async with aiohttp.ClientSession() as session:
@@ -209,46 +211,95 @@ async def process_nickname_input(message: Message, state: FSMContext):
                 await state.clear()
                 return
             
-            try:
-                data = await resp.json()
-            except Exception:
-                await msg.edit_text("❌ Не удалось обработать ответ от Steam.", reply_markup=back_keyboard(message.chat.id))
-                await state.clear()
-                return
+            html = await resp.text()
 
-            results = data if isinstance(data, list) else data.get("results", [])
+    soup = BeautifulSoup(html, 'html.parser')
+    found_players = []
 
-            if not results:
-                await msg.edit_text("❌ Игроки с таким ником не найдены.", reply_markup=back_keyboard(message.chat.id))
-                await state.clear()
-                return
+    # Парсим карточки пользователей со страницы поиска Steam
+    for block in soup.select('.search_row'):
+        link_elem = block.select_one('.search_result_row')
+        if not link_elem:
+            link_elem = block.find('a', href=True)
+        
+        href = link_elem.get('href') if link_elem else ""
+        name_elem = block.select_one('.searchPersonaName')
+        name = name_elem.text.strip() if name_elem else "Неизвестно"
 
-            if len(results) == 1:
-                steam_id = results[0].get("steamid")
-                await msg.delete()
-                await show_player_profile(message, steam_id, state)
-                return
+        steam_id = None
+        if "/profiles/" in href:
+            parts = href.rstrip("/").split("/")
+            if parts[-1].isdigit():
+                steam_id = parts[-1]
+        elif "/id/" in href:
+            vanity = href.rstrip("/").split("/")[-1]
+            async with aiohttp.ClientSession() as session:
+                v_url = f"https://api.steampowered.com/ISteamUser/ResolveVanityURL/v0001/?key={STEAM_API_KEY}&vanityurl={vanity}"
+                async with session.get(v_url) as r:
+                    v_data = await r.json()
+                    if v_data.get("response", {}).get("success") == 1:
+                        steam_id = v_data.get("response", {}).get("steamid")
 
-            keyboard = []
-            for item in results[:10]:
-                s_id = item.get("steamid")
-                name = item.get("name")
-                if s_id and name:
-                    keyboard.append([InlineKeyboardButton(text=name, callback_data=f"select_player_{s_id}")])
-            
-            if not keyboard:
-                await msg.edit_text("❌ Не удалось найти подходящих профилей.", reply_markup=back_keyboard(message.chat.id))
-                await state.clear()
-                return
+        if steam_id:
+            found_players.append({"steamid": steam_id, "name": name})
 
-            keyboard.append([InlineKeyboardButton(text="⬅️ Вернуться на самое начало", callback_data="go_home")])
+    if not found_players:
+        await msg.edit_text("❌ Игроки с таким ником не найдены.", reply_markup=back_keyboard(message.chat.id))
+        await state.clear()
+        return
 
-            await msg.edit_text(
-                f"🔍 Найдено несколько игроков по запросу **{nickname}**. Выберите нужного:",
-                reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard),
-                parse_mode="Markdown"
-            )
-            await state.clear()
+    user_id = message.chat.id
+    search_cache[user_id] = {"players": found_players, "query": nickname}
+
+    await state.clear()
+    await send_search_page(msg, user_id, page=0, edit=True)
+
+async def send_search_page(msg: Message, user_id: int, page: int = 0, edit: bool = False):
+    data = search_cache.get(user_id)
+    if not data:
+        await msg.edit_text("❌ Время поиска истекло. Повторите запрос.", reply_markup=back_keyboard(user_id))
+        return
+
+    players = data["players"]
+    nickname = data["query"]
+    
+    per_page = 5
+    total_pages = (len(players) + per_page - 1) // per_page
+    page = max(0, min(page, total_pages - 1))
+
+    start_idx = page * per_page
+    end_idx = start_idx + per_page
+    current_slice = players[start_idx:end_idx]
+
+    keyboard = []
+    for p in current_slice:
+        keyboard.append([InlineKeyboardButton(text=p["name"], callback_data=f"select_player_{p['steamid']}")])
+
+    nav_buttons = []
+    if page > 0:
+        nav_buttons.append(InlineKeyboardButton(text="⬅️ Назад", callback_data=f"search_page_{page - 1}"))
+    if page < total_pages - 1:
+        nav_buttons.append(InlineKeyboardButton(text="Вперед ➡️", callback_data=f"search_page_{page + 1}"))
+    
+    if nav_buttons:
+        keyboard.append(nav_buttons)
+
+    keyboard.append([InlineKeyboardButton(text="⬅️ Вернуться на самое начало", callback_data="go_home")])
+
+    text = f"🔍 Найдено игроков по запросу **{nickname}** (Страница {page + 1} из {total_pages}):"
+    
+    markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
+    if edit:
+        await msg.edit_text(text, reply_markup=markup, parse_mode="Markdown")
+    else:
+        await msg.answer(text, reply_markup=markup, parse_mode="Markdown")
+
+@router.callback_query(F.data.startswith("search_page_"))
+async def search_page_callback(callback: CallbackQuery):
+    page = int(callback.data.split("_")[2])
+    user_id = callback.from_user.id
+    await send_search_page(callback.message, user_id, page=page, edit=True)
+    await callback.answer()
 
 @router.callback_query(F.data.startswith("select_player_"))
 async def select_player_callback(callback: CallbackQuery, state: FSMContext):
@@ -344,7 +395,7 @@ async def show_player_profile(message: Message, steam_id: str, state: FSMContext
         if edit_message:
             await msg.edit_text(
                 response_text,
-                reply_markup=result_keyboard(steam_id, is_tracking=is_tracked),
+                reply_markup=result_keyboard(steam_id, is_tracking=is_tracking),
                 parse_mode="Markdown",
                 disable_web_page_preview=True
             )
@@ -352,7 +403,7 @@ async def show_player_profile(message: Message, steam_id: str, state: FSMContext
             await msg.delete()
             await message.answer(
                 response_text,
-                reply_markup=result_keyboard(steam_id, is_tracking=is_tracked),
+                reply_markup=result_keyboard(steam_id, is_tracking=is_tracking),
                 parse_mode="Markdown",
                 disable_web_page_preview=True
             )
@@ -445,6 +496,8 @@ async def stop_track_player(callback: CallbackQuery):
             await callback.message.edit_reply_markup(reply_markup=result_keyboard(steam_id, is_tracking=False))
         except Exception:
             pass
+
+from urllib.parse import quote
 
 async def main():
     dp.include_router(router)
