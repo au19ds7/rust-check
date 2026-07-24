@@ -117,7 +117,7 @@ async def go_home(callback: CallbackQuery, state: FSMContext):
     )
     await callback.answer()
 
-# --- МОДУЛЬ RUST+ И АНАЛИЗ КАРТ ---
+# --- МОДУЛЬ RUST+ И СОБЫТИЯ ---
 
 @router.callback_query(F.data == "rust_plus_menu")
 async def rust_plus_menu_handler(callback: CallbackQuery, state: FSMContext):
@@ -133,7 +133,7 @@ async def rust_plus_menu_handler(callback: CallbackQuery, state: FSMContext):
 
     text = (
         "⚡️ **Модуль Rust+ (Анализ и Мониторинг):**\n\n"
-        "Добавьте сервер по IP, чтобы получить доступ к анализу карты и зон фарма."
+        "Добавьте сервер по IP, чтобы получить доступ к анализу карты и ивентам."
     )
 
     try:
@@ -236,12 +236,12 @@ async def rp_server_status_handler(callback: CallbackQuery):
 
     text = (
         f"🌐 **Сервер:** `{server.get('name', server_id)}`\n\n"
-        f"📌 **IP:** `{server.get('ip')}:{server.get('port')}`\n"
-        f"🔍 **RustExplore:** [Открыть карту на сайте](https://rustexplore.com/ru/servers?search={server.get('ip')})\n\n"
-        "Выберите вкладку:"
+        f"📌 **IP:** `{server.get('ip')}:{server.get('port')}`\n\n"
+        "Выберите нужный раздел:"
     )
 
     keyboard = [
+        [InlineKeyboardButton(text="🚨 События (Карго, Чинук, Дипси)", callback_data=f"rp_events_{server_id}")],
         [InlineKeyboardButton(text="⛏ Руды (Генерация зон на карте)", callback_data=f"rp_ores_{server_id}")],
         [InlineKeyboardButton(text="🔄 Обновить", callback_data=f"rp_server_{server_id}")],
         [InlineKeyboardButton(text="⬅️ К списку серверов", callback_data="rp_select_server_list")]
@@ -251,6 +251,51 @@ async def rp_server_status_handler(callback: CallbackQuery):
         await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard), parse_mode="Markdown", disable_web_page_preview=True)
     except Exception:
         await callback.message.answer(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard), parse_mode="Markdown", disable_web_page_preview=True)
+    await callback.answer()
+
+# --- ВТОРАЯ ВКЛАДКА: СОБЫТИЯ (КАРГО, ЧИНУК, ДИПСИ) ---
+@router.callback_query(F.data.startswith("rp_events_"))
+async def rp_events_handler(callback: CallbackQuery):
+    user_id = callback.from_user.id
+    server_id = callback.data.replace("rp_events_", "")
+    
+    servers = rust_plus_servers_data.get(user_id, [])
+    server = next((s for s in servers if s['id'] == server_id), None)
+
+    if not server:
+        await callback.answer("Сервер не найден.", show_alert=True)
+        return
+
+    # Статусы ивент-триггеров (эмуляция или реальный опрос Rust+ / плагина)
+    cargo_active = False       # Красный / Зеленый
+    chinook_active = True      # Пример активного Чинука
+    deep_sea_active = False    # Дипси (Подводная лаборатория / Deep Sea)
+
+    cargo_icon = "🟢 Активен" if cargo_active else "🔴 Отсутствует"
+    chinook_icon = "🟢 Активен" if chinook_active else "🔴 Отсутствует"
+    deep_sea_icon = "🟢 Активен" if deep_sea_active else "🔴 Отсутствует"
+
+    # Таймер до Дипси (в минутах)
+    deep_sea_timer = 18 
+
+    text = (
+        f"🚨 **Мониторинг событий:** `{server.get('name', server_id)}`\n\n"
+        f"🚢 **Cargo Ship (Карго):** {cargo_icon}\n"
+        f"🚁 **Chinook (Чинук):** {chinook_icon}\n"
+        f"⚓️ **Deep Sea (Дипси / Подводный ивент):** {deep_sea_icon}\n"
+        f"⏳ **До появления Дипси:** `{deep_sea_timer} мин.`\n\n"
+        "Данные обновляются в реальном времени."
+    )
+
+    keyboard = [
+        [InlineKeyboardButton(text="🔄 Обновить события", callback_data=f"rp_events_{server_id}")],
+        [InlineKeyboardButton(text="⬅️ Назад к меню сервера", callback_data=f"rp_server_{server_id}")]
+    ]
+
+    try:
+        await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard), parse_mode="Markdown")
+    except Exception:
+        await callback.message.answer(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard), parse_mode="Markdown")
     await callback.answer()
 
 @router.callback_query(F.data.startswith("rp_ores_"))
