@@ -5,6 +5,7 @@ import asyncio
 import logging
 import re
 from urllib.parse import quote
+from bs4 import BeautifulSoup
 
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.filters import Command
@@ -41,8 +42,8 @@ LANGS = {
         "btn_tracked": "👁 Мои отслеживания",
         "btn_zayats": "🐰 Заяц",
         "btn_about": "ℹ️ О боте / Язык",
-        "zayats_prompt": "🐰 **Режим Заяц**\n\nОтправьте мне **Steam ID 64** игрока, чтобы узнать, на каком сервере он сейчас играет:",
-        "zayats_not_found": "❌ Игрок не найден или профиль скрыт.",
+        "zayats_prompt": "🐰 **Режим Заяц**\n\nОтправьте мне **Steam ID 64** или **кастомный URL/ник (буквенный)** игрока, чтобы узнать его сервер через rust.destiny.ie:",
+        "zayats_not_found": "❌ Игрок не найден на rust.destiny.ie или профиль скрыт.",
         "about_text": (
             "ℹ️ **О боте:**\n\n"
             "Многофункциональный помощник для игроков Rust.\n\n"
@@ -98,8 +99,8 @@ LANGS = {
         "btn_tracked": "👁 My Tracked Players",
         "btn_zayats": "🐰 Zayats",
         "btn_about": "ℹ️ About Bot / Language",
-        "zayats_prompt": "🐰 **Zayats Mode**\n\nSend me player's **Steam ID 64** to find out what server they are playing on:",
-        "zayats_not_found": "❌ Player not found or profile is private.",
+        "zayats_prompt": "🐰 **Zayats Mode**\n\nSend me Steam ID 64 or custom URL:",
+        "zayats_not_found": "❌ Player not found on rust.destiny.ie.",
         "about_text": "ℹ️ **About Bot:**",
         "lang_changed": "✅ Language successfully changed to English!",
         "rust_plus_menu_title": "⚡️ **Rust+ Menu**",
@@ -151,8 +152,8 @@ LANGS = {
         "btn_tracked": "👁 Відстеження",
         "btn_zayats": "🐰 Заєць",
         "btn_about": "ℹ️ Про бота / Мова",
-        "zayats_prompt": "🐰 **Режим Заєць**\n\nНадішліть **Steam ID 64** гравця, щоб дізнатися сервер, на якому він грає:",
-        "zayats_not_found": "❌ Гравця не знайдено або профіль приховано.",
+        "zayats_prompt": "🐰 **Режим Заєць**\n\nНадішліть Steam ID 64 або кастомний ID гравця:",
+        "zayats_not_found": "❌ Гравця не знайдено на rust.destiny.ie.",
         "about_text": "ℹ️ **Про бота:**",
         "lang_changed": "✅ Мову змінено!",
         "rust_plus_menu_title": "⚡️ **Меню Rust+**",
@@ -189,7 +190,7 @@ LANGS = {
         "btn_stop_track": "🛑 Зупинити",
         "btn_check_bans": "🛡 Бани",
         "bans_msg": "🛡 Чистий",
-        "track_on": "✅ Відстеження увімкнено! Сповіщатиму про вхід/вихід з Rust.",
+        "track_on": "✅ Відстеження увімкнено!",
         "track_off": "🛑 Зупинено."
     }
 }
@@ -299,37 +300,95 @@ async def zayats_menu_start(callback: CallbackQuery, state: FSMContext):
 @router.message(ZayatsState.waiting_for_steam_id)
 async def process_zayats_input(message: Message, state: FSMContext):
     user_id = message.from_user.id
-    steam_id = message.text.strip()
+    user_input = message.text.strip()
     try:
         await message.delete()
     except Exception:
         pass
 
     msg_id = last_search_message.get(user_id)
+
+    # Очищаем ссылки если ввели полный URL
+    if "steamcommunity.com/id/" in user_input:
+        user_input = user_input.rstrip("/").split("/")[-1]
+    elif "steamcommunity.com/profiles/" in user_input:
+        user_input = user_input.rstrip("/").split("/")[-1]
+
+    steam_id = None
+    if user_input.isdigit() and len(user_input) == 17:
+        steam_id = user_input
+    else:
+        # Пытаемся разрешить кастомный буквенный ID через Steam API
+        async with aiohttp.ClientSession() as session:
+            vanity_url = f"https://api.steampowered.com/ISteamUser/ResolveVanityURL/v0001/?key={STEAM_API_KEY}&vanityurl={user_input}"
+            async with session.get(vanity_url) as resp:
+                data = await resp.json()
+                if data.get("response", {}).get("success") == 1:
+                    steam_id = data.get("response", {}).get("steamid")
+
+    if not steam_id:
+        steam_id = user_input # Если не получилось через API, пробуем передать как есть
+
+    # Парсим сайт rust.destiny.ie
+    server_found = None
+    player_name = "Игрок"
     
     async with aiohttp.ClientSession() as session:
-        profile_url = f"https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v0002/?key={STEAM_API_KEY}&steamids={steam_id}"
-        async with session.get(profile_url) as resp:
-            data = await resp.json()
-            players = data.get("response", {}).get("players", [])
-            if not players:
-                if msg_id:
-                    await bot.edit_message_text(t(user_id, "zayats_not_found"), chat_id=user_id, message_id=msg_id, reply_markup=back_keyboard(user_id))
-                return
-            
-            player = players[0]
-            name = player.get("personaname", "Игрок")
-            gameid = player.get("gameid")
-            game_ext_info = player.get("gameextrainfo", "")
+        search_url = f"https://rust.destiny.ie/ru/search?q={quote(steam_id)}"
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        }
+        try:
+            async with session.get(search_url, headers=headers) as resp:
+                if resp.status == 200:
+                    html_content = await resp.text()
+                    soup = BeautifulSoup(html_content, 'html.parser')
+                    
+                    # Ищем блоки с точным совпадением или карточки результатов
+                    # На сайте rust.destiny.ie текст текущего сервера находится в блоках с текстом "ТЕКУЩИЙ СЕРВЕР"
+                    cards = soup.find_all(text=re.compile("ТЕКУЩИЙ СЕРВЕР", re.IGNORECASE))
+                    if not cards:
+                        # Пробуем искать по тегам карточек
+                        cards = soup.find_all(class_=re.compile("card|result|player", re.IGNORECASE))
 
-    if gameid == "252490" or "Rust" in game_ext_info:
-        server_info = game_ext_info if game_ext_info else "Official / Community Server"
-        status_msg = t(user_id, "playing_rust", server=server_info)
-    else:
-        current_game = game_ext_info if game_ext_info else "Не в игре"
-        status_msg = t(user_id, "not_in_rust", game=current_game)
+                    for card in soup.find_all(['div', 'section', 'article']):
+                        text_full = card.get_text()
+                        if "ТЕКУЩИЙ СЕРВЕР" in text_full or "ID " in text_full:
+                            # Извлекаем название сервера
+                            lines = text_full.split('\n')
+                            for line in lines:
+                                if "ТЕКУЩИЙ СЕРВЕР" in line:
+                                    server_found = line.replace("ТЕКУЩИЙ СЕРВЕР", "").strip()
+                                    break
+                            if not server_found:
+                                # Пробуем найти по соседним элементам
+                                server_div = card.find(text=re.compile("ТЕКУЩИЙ СЕРВЕР"))
+                                if server_div and server_div.parent:
+                                    server_found = server_div.parent.get_text().replace("ТЕКУЩИЙ СЕРВЕР", "").strip()
+                            
+                            # Имя игрока
+                            name_tag = card.find(['h3', 'h4', 'span', 'div'], class_=re.compile("name|title", re.IGNORECASE))
+                            if name_tag:
+                                player_name = name_tag.get_text().strip()
+                            break
+                    
+                    # Запасной вариант через регулярку по всему HTML, если структура сложная
+                    if not server_found:
+                        match_srv = re.search(r'ТЕКУЩИЙ СЕРВЕР\s*([^\n<]+)', html_content)
+                        if match_srv:
+                            server_found = match_srv.group(1).strip()
+        except Exception as e:
+            logging.error(f"Ошибка при парсинге rust.destiny.ie: {e}")
 
-    result_text = f"🐰 **Результат для игрока `{name}` (ID: `{steam_id}`):**\n\n{status_msg}"
+    if not server_found:
+        if msg_id:
+            try:
+                await bot.edit_message_text(t(user_id, "zayats_not_found"), chat_id=user_id, message_id=msg_id, reply_markup=back_keyboard(user_id))
+            except Exception:
+                pass
+        return
+
+    result_text = f"🐰 **Результат из rust.destiny.ie для `{user_input}`:**\n\n🟢 **Текущий сервер:** `{server_found}`"
 
     if msg_id:
         try:
@@ -896,8 +955,7 @@ async def check_rust_bans(callback: CallbackQuery):
 
 # --- ФОНОВЕ ВІДСТЕЖЕННЯ ГРАВЦІВ ---
 async def player_monitor_loop(user_id: int, steam_id: str):
-    """Фонова задача для постійного моніторингу статусу гравця у Rust кожні 30 секунд"""
-    was_in_rust = None  # Инициализируем None, чтобы зафиксировать первый реальный статус при старте
+    was_in_rust = None
     
     while True:
         try:
@@ -915,7 +973,6 @@ async def player_monitor_loop(user_id: int, steam_id: str):
                         is_currently_in_rust = (gameid == "252490" or "Rust" in game_ext_info)
                         server_name = game_ext_info if game_ext_info else "Official / Community Server"
 
-                        # Проверяем изменения состояния только после первой успешной проверки
                         if was_in_rust is not None:
                             if not was_in_rust and is_currently_in_rust:
                                 await bot.send_message(
@@ -946,11 +1003,9 @@ async def start_track_player(callback: CallbackQuery):
     if user_id not in tracked_players_list:
         tracked_players_list[user_id] = {}
 
-    # Если трекер уже работал для этого игрока, перезапускаем его
     if steam_id in active_trackers[user_id]:
         active_trackers[user_id][steam_id].cancel()
 
-    # Запуск фонового процесса
     task = asyncio.create_task(player_monitor_loop(user_id, steam_id))
     active_trackers[user_id][steam_id] = task
     tracked_players_list[user_id][steam_id] = steam_id
