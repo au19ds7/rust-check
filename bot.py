@@ -1,12 +1,18 @@
 import os
 import aiohttp
 import asyncio
+import logging
+from urllib.parse import quote
 from bs4 import BeautifulSoup
+
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
+
+# Включаем логирование для отладки ошибок
+logging.basicConfig(level=logging.INFO)
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 STEAM_API_KEY = os.getenv("STEAM_API_KEY")
@@ -46,8 +52,8 @@ def back_keyboard(user_id):
         [InlineKeyboardButton(text="⬅️ Вернуться на самое начало", callback_data="go_home")]
     ])
 
-def result_keyboard(steam_id, is_tracking=False):
-    if is_tracking:
+def result_keyboard(steam_id, is_tracked=False):
+    if is_tracked:
         track_btn = InlineKeyboardButton(text="🛑 Прекратить отслеживание", callback_data=f"stop_track_{steam_id}")
     else:
         track_btn = InlineKeyboardButton(text="🔔 Отслеживать игрока", callback_data=f"start_track_{steam_id}")
@@ -216,7 +222,6 @@ async def process_nickname_input(message: Message, state: FSMContext):
     soup = BeautifulSoup(html, 'html.parser')
     found_players = []
 
-    # Парсим карточки пользователей со страницы поиска Steam
     for block in soup.select('.search_row'):
         link_elem = block.select_one('.search_result_row')
         if not link_elem:
@@ -395,7 +400,7 @@ async def show_player_profile(message: Message, steam_id: str, state: FSMContext
         if edit_message:
             await msg.edit_text(
                 response_text,
-                reply_markup=result_keyboard(steam_id, is_tracking=is_tracking),
+                reply_markup=result_keyboard(steam_id, is_tracked=is_tracked),
                 parse_mode="Markdown",
                 disable_web_page_preview=True
             )
@@ -403,7 +408,7 @@ async def show_player_profile(message: Message, steam_id: str, state: FSMContext
             await msg.delete()
             await message.answer(
                 response_text,
-                reply_markup=result_keyboard(steam_id, is_tracking=is_tracking),
+                reply_markup=result_keyboard(steam_id, is_tracked=is_tracked),
                 parse_mode="Markdown",
                 disable_web_page_preview=True
             )
@@ -471,7 +476,7 @@ async def start_track_player(callback: CallbackQuery):
     await callback.answer("✅ Отслеживание успешно включено!", show_alert=True)
     
     try:
-        await callback.message.edit_reply_markup(reply_markup=result_keyboard(steam_id, is_tracking=True))
+        await callback.message.edit_reply_markup(reply_markup=result_keyboard(steam_id, is_tracked=True))
     except Exception:
         pass
 
@@ -493,11 +498,9 @@ async def stop_track_player(callback: CallbackQuery):
         await show_tracked_list(callback)
     else:
         try:
-            await callback.message.edit_reply_markup(reply_markup=result_keyboard(steam_id, is_tracking=False))
+            await callback.message.edit_reply_markup(reply_markup=result_keyboard(steam_id, is_tracked=False))
         except Exception:
             pass
-
-from urllib.parse import quote
 
 async def main():
     dp.include_router(router)
