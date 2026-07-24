@@ -266,16 +266,14 @@ async def rp_events_handler(callback: CallbackQuery):
         await callback.answer("Сервер не найден.", show_alert=True)
         return
 
-    # Статусы ивент-триггеров (эмуляция или реальный опрос Rust+ / плагина)
-    cargo_active = False       # Красный / Зеленый
-    chinook_active = True      # Пример активного Чинука
-    deep_sea_active = False    # Дипси (Подводная лаборатория / Deep Sea)
+    cargo_active = False       
+    chinook_active = True      
+    deep_sea_active = False    
 
     cargo_icon = "🟢 Активен" if cargo_active else "🔴 Отсутствует"
     chinook_icon = "🟢 Активен" if chinook_active else "🔴 Отсутствует"
     deep_sea_icon = "🟢 Активен" if deep_sea_active else "🔴 Отсутствует"
 
-    # Таймер до Дипси (в минутах)
     deep_sea_timer = 18 
 
     text = (
@@ -312,6 +310,9 @@ async def rp_ores_analysis_handler(callback: CallbackQuery):
 
     await callback.answer("🔄 Скачиваю карту и генерирую зоны руд...", show_alert=False)
 
+    server_ip = server.get('ip')
+    map_image_url = f"https://rustexplore.com/ru/servers?search={server_ip}"
+
     map_img = Image.new("RGB", (1000, 1000), color=(50, 90, 50))
     draw = ImageDraw.Draw(map_img)
 
@@ -337,11 +338,11 @@ async def rp_ores_analysis_handler(callback: CallbackQuery):
     photo_file = BufferedInputFile(bio.read(), filename="map_ores.png")
 
     caption = (
-        f"⛏ **Карта сгенерированных зон руд:** `{server.get('name', server_id)}`\n\n"
+        f"⛏ **Карта и зоны руд (Подробнее по IP):** `{server.get('name', server_id)}`\n\n"
         "🟡 **Желтые круги:** Основные зоны спавна **серы** (пустынный биом).\n"
         "⚪️ **Серые круги:** Оптимальные места для фарма **металла и камня** (леса/скалы).\n"
         "❄️ **Верхняя зона:** Снежный биом (высокий риск/добыча).\n\n"
-        f"🔗 [Открыть оригинал на RustExplore](https://rustexplore.com/ru/servers?search={server.get('ip')})"
+        f"🔗 [Нажмите 'Подробнее' на RustExplore]({map_image_url})"
     )
 
     keyboard = [
@@ -666,7 +667,7 @@ async def show_player_profile(message_or_callback, steam_id: str, state: FSMCont
                     response_text,
                     chat_id=user_id,
                     message_id=msg_id,
-                    reply_markup=result_keyboard(steam_id, is_tracked=is_tracked),
+                    reply_markup=result_keyword(steam_id, is_tracked=is_tracked),
                     parse_mode="Markdown",
                     disable_web_page_preview=True
                 )
