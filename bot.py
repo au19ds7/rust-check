@@ -14,7 +14,7 @@ logging.basicConfig(level=logging.INFO)
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 STEAM_API_KEY = os.getenv("STEAM_API_KEY")
-BOT_DOMAIN = os.getenv("BOT_DOMAIN", "https://your-bot-domain.com")  # Укажите ваш домен для OpenID редиректа
+BOT_DOMAIN = os.getenv("BOT_DOMAIN", "https://your-bot-domain.com")
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
@@ -24,7 +24,7 @@ active_trackers = {}
 tracked_players_list = {}
 search_cache = {}
 last_search_message = {}
-rust_plus_auth_data = {}  # Хранилище авторизованных сессий Rust+ через Steam OpenID
+rust_plus_auth_data = {}
 
 class SearchState(StatesGroup):
     waiting_for_steam_id = State()
@@ -93,21 +93,22 @@ async def go_home(callback: CallbackQuery, state: FSMContext):
     last_search_message.pop(user_id, None)
 
     text = "Главное меню:"
+    
+    # Удаляем старое компактное сообщение, чтобы интерфейс не ломался и не сжимался
     try:
-        await callback.message.edit_text(
-            text,
-            reply_markup=main_keyboard(user_id),
-            parse_mode="Markdown"
-        )
+        await callback.message.delete()
     except Exception:
-        await callback.message.answer(
-            text,
-            reply_markup=main_keyboard(user_id),
-            parse_mode="Markdown"
-        )
+        pass
+
+    # Отправляем полноценное новое сообщение с главным меню
+    await callback.message.answer(
+        text,
+        reply_markup=main_keyboard(user_id),
+        parse_mode="Markdown"
+    )
     await callback.answer()
 
-# --- МОДУЛЬ RUST+ (ЧЕРЕЗ НАСТОЯЩИЙ STEAM OPENID / OAUTH) ---
+# --- МОДУЛЬ RUST+ ---
 
 @router.callback_query(F.data == "rust_plus_menu")
 async def rust_plus_menu_handler(callback: CallbackQuery, state: FSMContext):
@@ -117,7 +118,7 @@ async def rust_plus_menu_handler(callback: CallbackQuery, state: FSMContext):
     if user_session and user_session.get("authenticated"):
         steam_id = user_session.get("steam_id")
         servers = user_session.get("servers", [])
-        servers_list = "\n".join([f"• `{s['ip']}:{s['port']}`" for s in servers]) if servers0 else "• Нет подключенных серверов"
+        servers_list = "\n".join([f"• `{s['ip']}:{s['port']}`" for s in servers]) if servers else "• Нет подключенных серверов"
 
         text = (
             "⚡️ **Модуль Rust+ (Авторизован через Steam):**\n\n"
@@ -132,7 +133,6 @@ async def rust_plus_menu_handler(callback: CallbackQuery, state: FSMContext):
             [InlineKeyboardButton(text="⬅️ Главное меню", callback_data="go_home")]
         ]
     else:
-        # Формируем официальную ссылку авторизации Steam OpenID
         openid_params = {
             "openid.ns": "http://specs.openid.net/auth/2.0",
             "openid.mode": "checkid_setup",
@@ -153,19 +153,18 @@ async def rust_plus_menu_handler(callback: CallbackQuery, state: FSMContext):
             [InlineKeyboardButton(text="⬅️ Главное меню", callback_data="go_home")]
         ]
 
-    await callback.message.edit_text(
-        text,
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard),
-        parse_mode="Markdown"
-    )
+    try:
+        await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard), parse_mode="Markdown")
+    except Exception:
+        await callback.message.answer(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard), parse_mode="Markdown")
     await callback.answer()
 
 @router.callback_query(F.data == "rp_logout")
-async def rp_logout_handler(callback: CallbackQuery):
+async def rp_logout_handler(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
     rust_plus_auth_data.pop(user_id, None)
     await callback.answer("🚪 Вы успешно вышли из Steam аккаунта в Rust+.", show_alert=True)
-    await rust_plus_menu_handler(callback, None)
+    await rust_plus_menu_handler(callback, state)
 
 @router.callback_query(F.data == "rp_add_server")
 async def rp_add_server_handler(callback: CallbackQuery, state: FSMContext):
