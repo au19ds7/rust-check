@@ -1,4 +1,3 @@
-aiogram
-a2s
+aiogram==3.13.1
 aiohttp
-pillow
+beautifulsoup4
