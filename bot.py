@@ -11,7 +11,6 @@ from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKe
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
-# Включаем логирование для отладки ошибок
 logging.basicConfig(level=logging.INFO)
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -24,6 +23,7 @@ router = Router()
 active_trackers = {}
 tracked_players_list = {}
 search_cache = {}
+last_search_message = {} # Словарь для хранения ID сообщения с результатами поиска для каждого юзера
 
 class SearchState(StatesGroup):
     waiting_for_steam_id = State()
@@ -71,16 +71,23 @@ def result_keyboard(steam_id, is_tracked=False):
 @router.message(Command("start"))
 async def cmd_start(message: Message, state: FSMContext):
     await state.clear()
+    user_id = message.from_user.id
+    if user_id in last_search_message:
+        last_search_message.pop(user_id, None)
+
     await message.answer(
         "Полный список команд: /help.\n\n"
         "Если возникнут вопросы, пишите: @allfytiq",
-        reply_markup=main_keyboard(message.from_user.id),
+        reply_markup=main_keyboard(user_id),
         parse_mode="Markdown"
     )
 
 @router.callback_query(F.data == "go_home")
 async def go_home(callback: CallbackQuery, state: FSMContext):
     await state.clear()
+    user_id = callback.from_user.id
+    last_search_message.pop(user_id, None)
+
     text = (
         "Полный список команд: /help.\n\n"
         "Если возникнут вопросы, пишите: @allfytiq"
@@ -88,13 +95,13 @@ async def go_home(callback: CallbackQuery, state: FSMContext):
     try:
         await callback.message.edit_text(
             text,
-            reply_markup=main_keyboard(callback.from_user.id),
+            reply_markup=main_keyboard(user_id),
             parse_mode="Markdown"
         )
     except Exception:
         await callback.message.answer(
             text,
-            reply_markup=main_keyboard(callback.from_user.id),
+            reply_markup=main_keyboard(user_id),
             parse_mode="Markdown"
         )
     await callback.answer()
@@ -165,30 +172,41 @@ async def about_bot(callback: CallbackQuery):
 
 @router.callback_query(F.data == "start_search_id")
 async def start_search_id(callback: CallbackQuery, state: FSMContext):
+    user_id = callback.from_user.id
     await callback.message.edit_text(
-        "Отправьте мне **Steam ID**, ссылку или кастомный ID (например, `76561198000000000` or `numberonerust`).\n\n"
+        "Отправьте мне **Steam ID**, ссылку или кастомный ID (например, `76561198000000000` или `numberonerust`).\n\n"
         "Можете отправлять сколько угодно игроков подряд, пока не нажмете кнопку ниже:",
         reply_markup=stop_search_keyboard(),
         parse_mode="Markdown"
     )
+    last_search_message[user_id] = callback.message.message_id
     await state.set_state(SearchState.waiting_for_steam_id)
     await callback.answer()
 
 @router.callback_query(F.data == "start_search_nick")
 async def start_search_nick(callback: CallbackQuery, state: FSMContext):
+    user_id = callback.from_user.id
     await callback.message.edit_text(
         "Отправьте мне **ник или кастомный ID игрока** для поиска.\n\n"
         "Можете отправлять сколько угодно ников подряд, пока не нажмете кнопку ниже:",
         reply_markup=stop_search_keyboard(),
         parse_mode="Markdown"
     )
+    last_search_message[user_id] = callback.message.message_id
     await state.set_state(SearchState.waiting_for_nickname)
     await callback.answer()
 
 @router.message(SearchState.waiting_for_steam_id)
 async def process_steam_id_input(message: Message, state: FSMContext):
+    user_id = message.from_user.id
     user_input = message.text.strip()
     
+    # Удаляем сообщение пользователя с введенным текстом, чтобы не засорять чат
+    try:
+        await message.delete()
+    except Exception:
+        pass
+
     if "steamcommunity.com/id/" in user_input:
         user_input = user_input.rstrip("/").split("/")[-1]
     elif "steamcommunity.com/profiles/" in user_input:
@@ -203,21 +221,41 @@ async def process_steam_id_input(message: Message, state: FSMContext):
                 if response_block.get("success") == 1:
                     user_input = response_block.get("steamid")
                 else:
-                    await message.answer("❌ Игрок не найден. Проверьте правильность Steam ID, кастомного имени или ссылки.")
+                    msg_id = last_search_message.get(user_id)
+                    err_text = "❌ Игрок не найден. Проверьте правильность Steam ID, кастомного имени или ссылки.\n\nОтправьте следующий запрос или нажмите кнопку:"
+                    if msg_id:
+                        try:
+                            await bot.edit_message_text(err_text, chat_id=user_id, message_id=msg_id, reply_markup=stop_search_keyboard())
+                        except Exception:
+                            pass
                     return
 
-    await show_player_profile(message, user_input, state)
+    await show_player_profile(message, user_input, state, edit_message=True)
 
 @router.message(SearchState.waiting_for_nickname)
 async def process_nickname_input(message: Message, state: FSMContext):
+    user_id = message.from_user.id
     query = message.text.strip()
     
+    # Удаляем сообщение пользователя с введенным ником
+    try:
+        await message.delete()
+    except Exception:
+        pass
+
     if "steamcommunity.com/id/" in query:
         query = query.rstrip("/").split("/")[-1]
     elif "steamcommunity.com/profiles/" in query:
         query = query.rstrip("/").split("/")[-1]
 
-    msg = await message.answer("🔍 Ищу игроков...")
+    msg_id = last_search_message.get(user_id)
+    
+    # Обновляем текст на "Ищу..." в существующем сообщении бота
+    if msg_id:
+        try:
+            await bot.edit_message_text("🔍 Ищу игроков...", chat_id=user_id, message_id=msg_id, reply_markup=stop_search_keyboard())
+        except Exception:
+            pass
 
     async with aiohttp.ClientSession() as session:
         vanity_url = f"https://api.steampowered.com/ISteamUser/ResolveVanityURL/v0001/?key={STEAM_API_KEY}&vanityurl={query}"
@@ -226,8 +264,7 @@ async def process_nickname_input(message: Message, state: FSMContext):
             response_block = data.get("response", {})
             if response_block.get("success") == 1:
                 steam_id = response_block.get("steamid")
-                await msg.delete()
-                await show_player_profile(message, steam_id, state)
+                await show_player_profile(message, steam_id, state, edit_message=True)
                 return
 
     search_url = f"https://steamcommunity.com/search/users/?text={quote(query)}"
@@ -239,7 +276,8 @@ async def process_nickname_input(message: Message, state: FSMContext):
     async with aiohttp.ClientSession() as session:
         async with session.get(search_url, headers=headers) as resp:
             if resp.status != 200:
-                await msg.edit_text("❌ Ошибка при обращении к серверам Steam.")
+                if msg_id:
+                    await bot.edit_message_text("❌ Ошибка при обращении к серверам Steam.", chat_id=user_id, message_id=msg_id, reply_markup=stop_search_keyboard())
                 return
             
             html = await resp.text()
@@ -281,22 +319,26 @@ async def process_nickname_input(message: Message, state: FSMContext):
             found_players.append({"steamid": steam_id, "name": name})
 
     if not found_players:
-        await msg.edit_text(
+        err_text = (
             "❌ Игроки не найдены.\n\n"
             "💡 **Совет:** У Steam стоит сильная защита от частых запросов парсинга по обычным никам. "
-            "Самый надежный способ найти игрока — использовать его **кастомный ID** (например, `numberonerust`) или прямой **Steam ID 64**."
+            "Самый надежный способ найти игрока — использовать его **кастомный ID** (например, `numberonerust`) или прямой **Steam ID 64**.\n\n"
+            "Можете отправить следующий ник или ID:"
         )
+        if msg_id:
+            try:
+                await bot.edit_message_text(err_text, chat_id=user_id, message_id=msg_id, reply_markup=stop_search_keyboard(), parse_mode="Markdown")
+            except Exception:
+                pass
         return
 
-    user_id = message.chat.id
     search_cache[user_id] = {"players": found_players, "query": query}
+    await send_search_page(user_id, page=0)
 
-    await send_search_page(msg, user_id, page=0, edit=True)
-
-async def send_search_page(msg: Message, user_id: int, page: int = 0, edit: bool = False):
+async def send_search_page(user_id: int, page: int = 0):
     data = search_cache.get(user_id)
-    if not data:
-        await msg.edit_text("❌ Время поиска истекло. Повторите запрос.")
+    msg_id = last_search_message.get(user_id)
+    if not data or not msg_id:
         return
 
     players = data["players"]
@@ -325,19 +367,19 @@ async def send_search_page(msg: Message, user_id: int, page: int = 0, edit: bool
 
     keyboard.append([InlineKeyboardButton(text="🛑 Прекратить поиск", callback_data="go_home")])
 
-    text = f"🔍 Найдено по запросу **{nickname}** (Страница {page + 1} из {total_pages}):"
-    
+    text = f"🔍 Найдено по запросу **{nickname}** (Страница {page + 1} из {total_pages}):\n\nМожете отправить следующий ник или ID:"
     markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
-    if edit:
-        await msg.edit_text(text, reply_markup=markup, parse_mode="Markdown")
-    else:
-        await msg.answer(text, reply_markup=markup, parse_mode="Markdown")
+    
+    try:
+        await bot.edit_message_text(text, chat_id=user_id, message_id=msg_id, reply_markup=markup, parse_mode="Markdown")
+    except Exception:
+        pass
 
 @router.callback_query(F.data.startswith("search_page_"))
 async def search_page_callback(callback: CallbackQuery):
     page = int(callback.data.split("_")[2])
     user_id = callback.from_user.id
-    await send_search_page(callback.message, user_id, page=page, edit=True)
+    await send_search_page(user_id, page=page)
     await callback.answer()
 
 @router.callback_query(F.data.startswith("select_player_"))
@@ -346,15 +388,14 @@ async def select_player_callback(callback: CallbackQuery, state: FSMContext):
     await show_player_profile(callback.message, steam_id, state, edit_message=True)
     await callback.answer()
 
-async def show_player_profile(message: Message, steam_id: str, state: FSMContext, edit_message: bool = False):
-    chat_id = message.chat.id if hasattr(message, "chat") else message.message.chat.id
-    
-    if not edit_message:
-        msg = await message.answer("🔍 Загружаю информацию об игроке...")
-    else:
-        msg = message
+async def show_player_profile(message_or_callback, steam_id: str, state: FSMContext, edit_message: bool = False):
+    chat_id = message_or_callback.chat.id if hasattr(message_or_callback, "chat") else message_or_callback.message.chat.id
+    user_id = chat_id
+    msg_id = last_search_message.get(user_id)
+
+    if msg_id:
         try:
-            await msg.edit_text("🔍 Загружаю информацию об игроке...")
+            await bot.edit_message_text("🔍 Загружаю информацию об игроке...", chat_id=user_id, message_id=msg_id)
         except Exception:
             pass
 
@@ -365,11 +406,12 @@ async def show_player_profile(message: Message, steam_id: str, state: FSMContext
             players = data.get("response", {}).get("players", [])
             
             if not players:
-                if edit_message:
-                    await msg.edit_text("❌ Профиль игрока скрыт или не найден.")
-                else:
-                    await msg.delete()
-                    await message.answer("❌ Профиль игрока скрыт или не найден.")
+                err_text = "❌ Профиль игрока скрыт или не найден.\n\nОтправьте следующий ник или ID:"
+                if msg_id:
+                    try:
+                        await bot.edit_message_text(err_text, chat_id=user_id, message_id=msg_id, reply_markup=stop_search_keyboard())
+                    except Exception:
+                        pass
                 return
             
             player = players[0]
@@ -426,27 +468,24 @@ async def show_player_profile(message: Message, steam_id: str, state: FSMContext
             f"🔗 **Ссылки:**\n"
             f"• [Профиль Steam]({profile_link})\n"
             f"• [RustStats.io]({ruststats_link})\n"
-            f"• [RustBans]({rustbans_link})"
+            f"• [RustBans]({rustbans_link})\n\n"
+            f"💡 *Можете отправить следующий ник или ID для поиска.*"
         )
 
-        user_id = chat_id
         is_tracked = user_id in active_trackers and steam_id in active_trackers[user_id]
 
-        if edit_message:
-            await msg.edit_text(
-                response_text,
-                reply_markup=result_keyboard(steam_id, is_tracked=is_tracked),
-                parse_mode="Markdown",
-                disable_web_page_preview=True
-            )
-        else:
-            await msg.delete()
-            await message.answer(
-                response_text,
-                reply_markup=result_keyboard(steam_id, is_tracked=is_tracked),
-                parse_mode="Markdown",
-                disable_web_page_preview=True
-            )
+        if msg_id:
+            try:
+                await bot.edit_message_text(
+                    response_text,
+                    chat_id=user_id,
+                    message_id=msg_id,
+                    reply_markup=result_keyboard(steam_id, is_tracked=is_tracked),
+                    parse_mode="Markdown",
+                    disable_web_page_preview=True
+                )
+            except Exception:
+                pass
 
 @router.callback_query(F.data.startswith("start_track_"))
 async def start_track_player(callback: CallbackQuery):
