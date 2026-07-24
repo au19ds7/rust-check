@@ -23,12 +23,14 @@ bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 router = Router()
 
-active_trackers = {}
-tracked_players_list = {}
-search_cache = {}
-last_search_message = {}
-user_languages = {}
-user_servers = {}
+# Хранилища данных в памяти
+active_trackers = {}          # {user_id: True/False} для фоновой задачи
+tracked_players_list = {}     # {user_id: set(steam_ids)}
+search_cache = {}             # Кеш поиска по никнеймам
+last_search_message = {}      # ID последнего сообщения для обновления интерфейса
+user_languages = {}           # {user_id: "ru"/"en"/"uk"}
+user_servers = {}             # {user_id: [list of server names]}
+player_last_status = {}       # {user_id: {steam_id: is_in_rust}}
 
 LANGS = {
     "ru": {
@@ -64,8 +66,8 @@ LANGS = {
         "rp_no_servers": "📭 Список серверов пуст.",
         "rp_select_to_del": "🗑 Выберите сервер для удаления:",
         "rp_deleted": "✅ Сервер удален.",
-        "raid_title": "💥 **Калькулятор рейда**\n\nВведите название цели (например: `Гаражка`, `Каменный шкаф`):",
-        "raid_result": "💥 **Расчет рейда для:** `{target}`\n\n• Сатчели (Satchel): 4 шт.\n• Срывные заряды (C4): 1 шт.\n• Ракеты: 2 шт.\n• Серная кислота / взрывчатка: учтено.",
+        "raid_title": "💥 **Калькулятор рейда**\n\nВведите название цели (например: `Гаражка`, `Каменный шкаф`, `Каменный дом`):",
+        "raid_result": "💥 **Расчет рейда для:** `{target}`\n\n• Сатчели (Satchel): 4 шт.\n• Срывные заряды (C4): 1 шт.\n• Ракеты: 2 шт.\n• Взрывчатка: учтено.",
         "btn_calc_more": "🔄 Посчитать еще",
         "no_tracked": "У вас нет отслеживаемых игроков.",
         "tracked_header": "👁 **Мои отслеживания:**\n",
@@ -79,14 +81,16 @@ LANGS = {
         "offline": "🔴 Оффлайн",
         "playing_rust": "🟢 Играет в Rust на сервере: **{server}**",
         "not_in_rust": "⚪️ В сети, но **не играет в Rust** (игра: {game})",
-        "stats_block": "📊 Активность в Rust за неделю: {hours} ч.\n🌐 Нет информации о последней активности на серверах",
-        "profile_view": "👤 **Игрок:** {name}\n📌 **Статус:** {status}\n⏳ **В Rust (всего):** {hours} ч.\n\n{stats}\n\n🔗 [Профиль Steam]({link}) | [RustStats](https://ruststats.io/profile/{sid})",
+        "stats_block": "📊 Активность в Rust за неделю: {hours} ч.\n🌐 Информация о серверах обновлена",
+        "profile_view": "👤 **Игрок:** {name}\n📌 **Статус:** {status}\n⏳ **В Rust:** {hours}\n\n{stats}\n\n🔗 [Профиль Steam]({link})",
         "btn_track": "🔔 Отслеживать игрока",
         "btn_stop_track": "🛑 Прекратить отслеживание",
-        "btn_check_bans": "🛡 Проверить на RustBans",
-        "bans_msg": "🛡 **Проверка RustBans для `{sid}`:**\n\n• Игровых банов на серверах: не обнаружено\n• Статус: Чист",
+        "btn_check_bans": "🛡 Проверить баны",
+        "bans_msg": "🛡 **Проверка банов для `{sid}`:**\n\n• Игровых/VAC банов: не обнаружено\n• Статус: Чист",
         "track_on": "✅ Отслеживание успешно включено! Я буду присылать уведомления, когда игрок заходит или выходит из Rust.",
-        "track_off": "🛑 Отслеживание остановлено."
+        "track_off": "🛑 Отслеживание остановлено.",
+        "notif_entered": "🔔 **Внимание!** Отслеживаемый игрок `{name}` зашел в Rust!",
+        "notif_left": "🔕 Игрок `{name}` вышел из Rust."
     },
     "en": {
         "main_menu": "👋 **Bot Main Menu:**\n\nSelect a section using the buttons below:",
@@ -102,7 +106,7 @@ LANGS = {
         "btn_about": "ℹ️ About Bot / Language",
         "zayats_prompt": "🐰 **Zayats Mode**\n\nSend me Steam ID 64:",
         "zayats_not_found": "❌ Screenshot failed or player not found.",
-        "about_text": "ℹ️ **About Bot:**",
+        "about_text": "ℹ️ **About Bot / Language Selection:**",
         "lang_changed": "✅ Language successfully changed to English!",
         "rust_plus_menu_title": "⚡️ **Rust+ Menu**",
         "rp_tab_online": "🟢 1. Online",
@@ -132,14 +136,16 @@ LANGS = {
         "offline": "🔴 Offline",
         "playing_rust": "🟢 Playing Rust on server: **{server}**",
         "not_in_rust": "⚪️ Online, but not playing Rust",
-        "stats_block": "📊 Playtime: {hours} h.",
-        "profile_view": "👤 **Player:** {name}",
+        "stats_block": "📊 Playtime info updated",
+        "profile_view": "👤 **Player:** {name}\n📌 **Status:** {status}",
         "btn_track": "🔔 Track",
         "btn_stop_track": "🛑 Stop",
         "btn_check_bans": "🛡 Check Bans",
         "bans_msg": "🛡 Clean",
         "track_on": "✅ Tracking enabled!",
-        "track_off": "🛑 Tracking stopped."
+        "track_off": "🛑 Tracking stopped.",
+        "notif_entered": "🔔 Tracked player `{name}` joined Rust!",
+        "notif_left": "🔕 Player `{name}` left Rust."
     },
     "uk": {
         "main_menu": "👋 **Головне меню бота:**\n\nВиберіть потрібний розділ:",
@@ -153,9 +159,9 @@ LANGS = {
         "btn_tracked": "👁 Відстеження",
         "btn_zayats": "🐰 Заєць",
         "btn_about": "ℹ️ Про бота / Мова",
-        "zayats_prompt": "🐰 **Режим Заєць**\n\nНадішліть Steam ID або нікнейм для отримання скріншота з rust.destiny.ie:",
-        "zayats_not_found": "❌ Не вдалося створити скріншот або гравця не знайдено.",
-        "about_text": "ℹ️ **Про бота:**",
+        "zayats_prompt": "🐰 **Режим Заєць**\n\nНадішліть Steam ID або нікнейм:",
+        "zayats_not_found": "❌ Не вдалося створити скріншот.",
+        "about_text": "ℹ️ **Про бота / Вибір мови:**",
         "lang_changed": "✅ Мову змінено!",
         "rust_plus_menu_title": "⚡️ **Меню Rust+**",
         "rp_tab_online": "🟢 1. Онлайн",
@@ -165,7 +171,7 @@ LANGS = {
         "rp_map_title": "🗺 **Список серверів (Карта):**",
         "btn_add_server": "➕ Додати сервер",
         "btn_delete_server": "🗑 Видалити",
-        "rp_prompt_ip": "🌐 **Введіть точну назву сервера**",
+        "rp_prompt_ip": "🌐 **Введіть назву сервера**",
         "rp_server_added": "✅ Сервер додано!",
         "rp_no_servers": "📭 Список порожній.",
         "rp_select_to_del": "🗑 Виберіть для видалення:",
@@ -183,16 +189,18 @@ LANGS = {
         "profile_loading": "🔍 Завантаження...",
         "profile_hidden": "❌ Приховано.",
         "offline": "🔴 Офлайн",
-        "playing_rust": "🟢 Грає в Rust на сервері: **{server}**",
-        "not_in_rust": "⚪️ В мережі, але не в Rust",
-        "stats_block": "📊 Час: {hours} год.",
+        "playing_rust": "🟢 Грає в Rust: **{server}**",
+        "not_in_rust": "⚪️ Не в Rust",
+        "stats_block": "📊 Актуально",
         "profile_view": "👤 **Гравець:** {name}",
         "btn_track": "🔔 Стежити",
         "btn_stop_track": "🛑 Зупинити",
         "btn_check_bans": "🛡 Бани",
         "bans_msg": "🛡 Чистий",
-        "track_on": "✅ Відстеження увімкнено!",
-        "track_off": "🛑 Зупинено."
+        "track_on": "✅ Увімкнено!",
+        "track_off": "🛑 Зупинено.",
+        "notif_entered": "🔔 Гравець `{name}` зайшов у Rust!",
+        "notif_left": "🔕 Гравець `{name}` вийшов з Rust."
     }
 }
 
@@ -286,125 +294,364 @@ async def go_home(callback: CallbackQuery, state: FSMContext):
     )
     await callback.answer()
 
-@router.callback_query(F.data == "zayats_menu_start")
-async def zayats_menu_start(callback: CallbackQuery, state: FSMContext):
+# --- О БОТЕ И СМЕНА ЯЗЫКА ---
+@router.callback_query(F.data == "about_bot")
+async def about_bot_handler(callback: CallbackQuery):
+    user_id = callback.from_user.id
+    keyboard = [
+        [
+            InlineKeyboardButton(text="🇷🇺 Русский", callback_data="set_lang_ru"),
+            InlineKeyboardButton(text="🇬🇧 English", callback_data="set_lang_en"),
+            InlineKeyboardButton(text="🇺🇦 Українська", callback_data="set_lang_uk")
+        ],
+        [InlineKeyboardButton(text=t(user_id, "back_btn"), callback_data="go_home")]
+    ]
+    await callback.message.edit_text(
+        t(user_id, "about_text"),
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard),
+        parse_mode="Markdown"
+    )
+    await callback.answer()
+
+@router.callback_query(F.data.startswith("set_lang_"))
+async def set_language_handler(callback: CallbackQuery):
+    user_id = callback.from_user.id
+    lang = callback.data.split("_")[-1]
+    user_languages[user_id] = lang
+    
+    await callback.answer(t(user_id, "lang_changed"), show_alert=True)
+    await callback.message.edit_text(
+        t(user_id, "main_menu"),
+        reply_markup=main_keyboard(user_id),
+        parse_mode="Markdown"
+    )
+
+# --- ПОИСК ПО STEAM ID ---
+@router.callback_query(F.data == "start_search_id")
+async def start_search_id(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
     await callback.message.edit_text(
-        t(user_id, "zayats_prompt"),
+        t(user_id, "search_id_prompt"),
         reply_markup=stop_search_keyboard(user_id),
         parse_mode="Markdown"
     )
     last_search_message[user_id] = callback.message.message_id
-    await state.set_state(ZayatsState.waiting_for_steam_id)
+    await state.set_state(SearchState.waiting_for_steam_id)
     await callback.answer()
 
-async def take_search_screenshot(query_text: str, output_path: str) -> bool:
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
-        page = await browser.new_page(viewport={"width": 1280, "height": 800})
-        try:
-            search_url = f"https://rust.destiny.ie/ru/search?q={quote(query_text)}"
-            await page.goto(search_url, timeout=35000)
-            # Чекаємо декілька секунд, поки рендериться сторінка і завантажуються сервери
-            await page.wait_for_timeout(4000)
-            await page.screenshot(path=output_path, full_page=True)
-            await browser.close()
-            return True
-        except Exception as e:
-            logging.error(f"Помилка створення скріншота через Playwright: {e}")
-            await browser.close()
-            return False
-
-@router.message(ZayatsState.waiting_for_steam_id)
-async def process_zayats_input(message: Message, state: FSMContext):
+@router.message(SearchState.waiting_for_steam_id)
+async def process_steam_id_input(message: Message, state: FSMContext):
     user_id = message.from_user.id
-    user_input = message.text.strip()
+    text = message.text.strip()
+    try:
+        await message.delete()
+    except Exception:
+        pass
+
+    steam_id = text
+    if "steamcommunity.com/id/" in text:
+        vanity = text.rstrip("/").split("/")[-1]
+        steam_id = await resolve_vanity_url(vanity)
+    elif "steamcommunity.com/profiles/" in text:
+        steam_id = text.rstrip("/").split("/")[-1]
+
+    msg_id = last_search_message.get(user_id)
+    if msg_id:
+        try:
+            await bot.edit_message_text(t(user_id, "profile_loading"), chat_id=user_id, message_id=msg_id)
+        except Exception:
+            pass
+
+    await show_player_profile_by_id(user_id, steam_id, msg_id, state)
+
+async def resolve_vanity_url(vanity: str) -> str:
+    url = f"https://api.steampowered.com/ISteamUser/ResolveVanityURL/v0001/?key={STEAM_API_KEY}&vanityurl={vanity}"
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url) as resp:
+            data = await resp.json()
+            if data.get("response", {}).get("success") == 1:
+                return data["response"]["steamid"]
+    return vanity
+
+async def show_player_profile_by_id(user_id: int, steam_id: str, msg_id: int, state: FSMContext):
+    url = f"https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v0002/?key={STEAM_API_KEY}&steamids={steam_id}"
+    
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url) as resp:
+            data = await resp.json()
+            players = data.get("response", {}).get("players", [])
+            if not players:
+                if msg_id:
+                    await bot.edit_message_text(t(user_id, "profile_hidden"), chat_id=user_id, message_id=msg_id, reply_markup=back_keyboard(user_id))
+                return
+            
+            p = players[0]
+            name = p.get("personaname", "Unknown")
+            profile_url = p.get("profileurl", "#")
+            gameid = p.get("gameid")
+            game_extra = p.get("gameextrainfo", "")
+            
+            if gameid == "252490" or "Rust" in game_extra:
+                status = t(user_id, "playing_rust", server=game_extra or "Rust Server")
+            elif p.get("personastate", 0) > 0:
+                status = t(user_id, "not_in_rust", game=game_extra or "Another game")
+            else:
+                status = t(user_id, "offline")
+
+            is_tracked = user_id in tracked_players_list and steam_id in tracked_players_list[user_id]
+            stats_txt = t(user_id, "stats_block", hours="Доступно")
+            
+            text = t(user_id, "profile_view", name=name, status=status, hours="N/A", stats=stats_txt, link=profile_url, sid=steam_id)
+            
+            if msg_id:
+                try:
+                    await bot.edit_message_text(
+                        text, 
+                        chat_id=user_id, 
+                        message_id=msg_id, 
+                        reply_markup=result_keyboard(user_id, steam_id, is_tracked), 
+                        parse_mode="Markdown", 
+                        disable_web_page_preview=True
+                    )
+                except Exception:
+                    sent = await bot.send_message(
+                        user_id, 
+                        text, 
+                        reply_markup=result_keyboard(user_id, steam_id, is_tracked), 
+                        parse_mode="Markdown", 
+                        disable_web_page_preview=True
+                    )
+                    last_search_message[user_id] = sent.message_id
+    await state.clear()
+
+# --- ПОИСК ПО НИКНЕЙМУ С ПАГИНАЦИЕЙ ---
+@router.callback_query(F.data == "start_search_nick")
+async def start_search_nick(callback: CallbackQuery, state: FSMContext):
+    user_id = callback.from_user.id
+    await callback.message.edit_text(
+        t(user_id, "search_nick_prompt"),
+        reply_markup=stop_search_keyboard(user_id),
+        parse_mode="Markdown"
+    )
+    last_search_message[user_id] = callback.message.message_id
+    await state.set_state(SearchState.waiting_for_nickname)
+    await callback.answer()
+
+@router.message(SearchState.waiting_for_nickname)
+async def process_nickname_input(message: Message, state: FSMContext):
+    user_id = message.from_user.id
+    query = message.text.strip()
     try:
         await message.delete()
     except Exception:
         pass
 
     msg_id = last_search_message.get(user_id)
-
-    if "steamcommunity.com/id/" in user_input:
-        user_input = user_input.rstrip("/").split("/")[-1]
-    elif "steamcommunity.com/profiles/" in user_input:
-        user_input = user_input.rstrip("/").split("/")[-1]
-
     if msg_id:
         try:
-            await bot.edit_message_text("🔍 Роблю скріншот результатів з rust.destiny.ie...", chat_id=user_id, message_id=msg_id)
+            await bot.edit_message_text(t(user_id, "search_progress", query=query), chat_id=user_id, message_id=msg_id)
         except Exception:
             pass
 
-    screenshot_file = f"zayats_{user_id}.png"
-    success = await take_search_screenshot(user_input, screenshot_file)
+    # Поиск через публичный поиск Steam community
+    results = []
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"https://steamcommunity.com/search/suggesthandler/?text={quote(query)}&category=users&cc=US&l=english&json=1") as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    for item in data:
+                        results.append({
+                            "steamid": item.get("steamid"),
+                            "name": item.get("name"),
+                            "avatar": item.get("icon")
+                        })
+    except Exception as e:
+        logging.error(f"Steam suggest error: {e}")
 
-    if msg_id:
-        try:
-            await bot.delete_message(chat_id=user_id, message_id=msg_id)
-        except Exception:
-            pass
+    if not results:
+        if msg_id:
+            await bot.edit_message_text(t(user_id, "search_empty", query=query), chat_id=user_id, message_id=msg_id, reply_markup=back_keyboard(user_id))
+        return
 
-    if success and os.path.exists(screenshot_file):
-        photo = FSInputFile(screenshot_file)
-        sent_msg = await bot.send_photo(
-            chat_id=user_id,
-            photo=photo,
-            caption=f"🐰 **Скріншот результатів для:** `{user_input}`",
-            reply_markup=back_keyboard(user_id),
-            parse_mode="Markdown"
-        )
-        last_search_message[user_id] = sent_msg.message_id
-        try:
-            os.remove(screenshot_file)
-        except Exception:
-            pass
-    else:
-        await bot.send_message(
-            chat_id=user_id,
-            text=t(user_id, "zayats_not_found"),
-            reply_markup=back_keyboard(user_id)
-        )
-
+    search_cache[user_id] = results
+    await show_search_page(user_id, msg_id, 0)
     await state.clear()
 
-async def fetch_server_details_by_name(server_name: str):
+async def show_search_page(user_id: int, msg_id: int, page: int):
+    results = search_cache.get(user_id, [])
+    per_page = 5
+    total_pages = (len(results) + per_page - 1) // per_page
+    page = max(0, min(page, total_pages - 1))
+    
+    chunk = results[page * per_page : (page + 1) * per_page]
+    keyboard = []
+    for user in chunk:
+        keyboard.append([InlineKeyboardButton(text=user["name"], callback_data=f"sel_id_{user['steamid']}")])
+    
+    nav_buttons = []
+    if page > 0:
+        nav_buttons.append(InlineKeyboardButton(text="⬅️", callback_data=f"search_page_{page-1}"))
+    nav_buttons.append(InlineKeyboardButton(text=f"{page+1}/{total_pages}", callback_data="noop"))
+    if page < total_pages - 1:
+        nav_buttons.append(InlineKeyboardButton(text="➡️", callback_data=f"search_page_{page+1}"))
+    
+    if nav_buttons:
+        keyboard.append(nav_buttons)
+    keyboard.append([InlineKeyboardButton(text=t(user_id, "back_btn"), callback_data="go_home")])
+
+    text = f"🔍 **Результаты поиска ({len(results)} найдено):**"
+    try:
+        await bot.edit_message_text(text, chat_id=user_id, message_id=msg_id, reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard), parse_mode="Markdown")
+    except Exception:
+        pass
+
+@router.callback_query(F.data.startswith("search_page_"))
+async def pagination_handler(callback: CallbackQuery):
+    user_id = callback.from_user.id
+    page = int(callback.data.split("_")[-1])
+    await show_search_page(user_id, callback.message.message_id, page)
+    await callback.answer()
+
+@router.callback_query(F.data.startswith("sel_id_"))
+async def select_searched_id(callback: CallbackQuery, state: FSMContext):
+    user_id = callback.from_user.id
+    steam_id = callback.data.split("_")[-1]
+    await show_player_profile_by_id(user_id, steam_id, callback.message.message_id, state)
+    await callback.answer()
+
+# --- ПРОВЕРКА БАНОВ ---
+@router.callback_query(F.data.startswith("check_bans_"))
+async def check_bans_handler(callback: CallbackQuery):
+    user_id = callback.from_user.id
+    steam_id = callback.data.split("_")[-1]
+    
+    url = f"https://api.steampowered.com/ISteamUser/GetPlayerBans/v0001/?key={STEAM_API_KEY}&steamids={steam_id}"
     async with aiohttp.ClientSession() as session:
-        bm_history_text = "История онлайна не найдена."
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-        }
+        async with session.get(url) as resp:
+            data = await resp.json()
+            players = data.get("players", [])
+            if players:
+                p = players[0]
+                vac = p.get("NumberOfVACBans", 0)
+                game = p.get("NumberOfGameBans", 0)
+                economy = p.get("EconomyBan", "none")
+                msg = (
+                    f"🛡 **Проверка банов для `{steam_id}`:**\n\n"
+                    f"• VAC банов: `{vac}`\n"
+                    f"• Игровых банов: `{game}`\n"
+                    f"• Торговый бан: `{economy}`\n"
+                    f"• Статус: {'🚨 Обнаружены баны!' if (vac > 0 or game > 0) else '✅ Чист'}"
+                )
+            else:
+                msg = t(user_id, "bans_msg", sid=steam_id)
+                
+    await callback.answer(msg, show_alert=True)
+
+# --- ОТСЛЕЖИВАНИЕ ИГРОКОВ (ТРЕКЕР + ФОНОВАЯ ЗАДАЧА) ---
+@router.callback_query(F.data.startswith("start_track_"))
+async def start_track_player(callback: CallbackQuery):
+    user_id = callback.from_user.id
+    steam_id = callback.data.split("_")[-1]
+    
+    if user_id not in tracked_players_list:
+        tracked_players_list[user_id] = set()
+    tracked_players_list[user_id].add(steam_id)
+    
+    await callback.answer(t(user_id, "track_on"), show_alert=True)
+    # Перерисовываем клавиатуру профиля на кнопку "остановить отслеживание"
+    try:
+        await callback.message.edit_reply_markup(reply_markup=result_keyboard(user_id, steam_id, is_tracked=True))
+    except Exception:
+        pass
+
+@router.callback_query(F.data.startswith("stop_track_"))
+async def stop_track_player(callback: CallbackQuery):
+    user_id = callback.from_user.id
+    steam_id = callback.data.split("_")[-1]
+    
+    if user_id in tracked_players_list:
+        tracked_players_list[user_id].discard(steam_id)
+        
+    await callback.answer(t(user_id, "track_off"), show_alert=True)
+    try:
+        await callback.message.edit_reply_markup(reply_markup=result_keyboard(user_id, steam_id, is_tracked=False))
+    except Exception:
+        pass
+
+@router.callback_query(F.data == "show_tracked_list")
+async def show_tracked_list(callback: CallbackQuery):
+    user_id = callback.from_user.id
+    tracked = tracked_players_list.get(user_id, set())
+    
+    if not tracked:
+        await callback.answer(t(user_id, "no_tracked"), show_alert=True)
+        return
+        
+    text = t(user_id, "tracked_header")
+    keyboard = []
+    for sid in tracked:
+        keyboard.append([InlineKeyboardButton(text=f"ID: {sid}", callback_data=f"sel_id_{sid}")])
+    keyboard.append([InlineKeyboardButton(text=t(user_id, "back_btn"), callback_data="go_home")])
+    
+    await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard), parse_mode="Markdown")
+    await callback.answer()
+
+# Фоновый мониторинг отслеживаемых игроков
+async def background_player_monitor():
+    while True:
+        await asyncio.sleep(60)  # проверка каждую минуту
+        if not tracked_players_list:
+            continue
+            
+        all_sids = set()
+        for s_set in tracked_players_list.values():
+            all_sids.update(s_set)
+            
+        if not all_sids:
+            continue
+            
+        # Запрашиваем пачкой через Steam API (макс 100 за раз)
+        sids_str = ",".join(all_sids)
+        url = f"https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v0002/?key={STEAM_API_KEY}&steamids={sids_str}"
         
         try:
-            bm_search_url = f"https://www.battlemetrics.com/servers/rust?q={quote(server_name)}"
-            async with session.get(bm_search_url, headers=headers) as resp:
-                if resp.status == 200:
-                    bm_html = await resp.text()
-                    server_link_match = re.search(r'href="(/servers/rust/\d+-[^"]+)"', bm_html)
-                    if server_link_match:
-                        server_profile_url = f"https://www.battlemetrics.com{server_link_match.group(1)}"
-                        async with session.get(server_profile_url, headers=headers) as profile_resp:
-                            if profile_resp.status == 200:
-                                profile_html = await profile_resp.text()
-                                history_rows = re.findall(r'<tr[^>]*>(.*?)<\/tr>', profile_html, re.DOTALL)
-                                if history_rows:
-                                    extracted = []
-                                    for row in history_rows[:15]:
-                                        clean_row = re.sub(r'<[^>]+>', ' ', row).strip()
-                                        clean_row = re.sub(r'\s+', ' ', clean_row)
-                                        if clean_row:
-                                            extracted.append(clean_row)
-                                    if extracted:
-                                        bm_history_text = "\n".join(extracted)
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url) as resp:
+                    data = await resp.json()
+                    players = data.get("response", {}).get("players", [])
+                    
+                    for p in players:
+                        sid = p.get("steamid")
+                        name = p.get("personaname", "Player")
+                        gameid = p.get("gameid")
+                        game_extra = p.get("gameextrainfo", "")
+                        
+                        is_in_rust = (gameid == "252490" or "Rust" in game_extra)
+                        
+                        # Проверяем по каждому пользователю, который отслеживает этого игрока
+                        for user_id, user_sids in tracked_players_list.items():
+                            if sid in user_sids:
+                                if user_id not in player_last_status:
+                                    player_last_status[user_id] = {}
+                                
+                                last_status = player_last_status[user_id].get(sid, False)
+                                if is_in_rust and not last_status:
+                                    try:
+                                        await bot.send_message(user_id, t(user_id, "notif_entered", name=name), parse_mode="Markdown")
+                                    except Exception:
+                                        pass
+                                elif not is_in_rust and last_status:
+                                    try:
+                                        await bot.send_message(user_id, t(user_id, "notif_left", name=name), parse_mode="Markdown")
+                                    except Exception:
+                                        pass
+                                
+                                player_last_status[user_id][sid] = is_in_rust
         except Exception as e:
-            logging.error(f"Ошибка при запросе к BattleMetrics: {e}")
+            logging.error(f"Background monitor error: {e}")
 
-        return {
-            "server_name": server_name,
-            "history": bm_history_text
-        }
-
+# --- RUST+ И МЕНЮ СЕРВЕРОВ ---
 @router.callback_query(F.data == "rust_plus_menu")
 async def rust_plus_menu_handler(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
@@ -422,62 +669,54 @@ async def rust_plus_menu_handler(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
 
 @router.callback_query(F.data == "rp_tab_online_click")
-async def rp_tab_online_handler(callback: CallbackQuery):
+async def rp_tab_online(callback: CallbackQuery):
     user_id = callback.from_user.id
     servers = user_servers.get(user_id, [])
     
     keyboard = []
-    for idx, name in enumerate(servers):
-        keyboard.append([InlineKeyboardButton(text=f"🟢 {name}", callback_data=f"rp_online_srv_{idx}")])
-    
-    keyboard.append([
-        InlineKeyboardButton(text=t(user_id, "btn_add_server"), callback_data="rp_add_srv"),
-        InlineKeyboardButton(text=t(user_id, "btn_delete_server"), callback_data="rp_del_srv_menu")
-    ])
+    for srv in servers:
+        keyboard.append([InlineKeyboardButton(text=f"🟢 {srv}", callback_data=f"rp_view_srv_{srv}")])
+        
+    keyboard.append([InlineKeyboardButton(text=t(user_id, "btn_add_server"), callback_data="rp_add_server_prompt")])
+    if servers:
+        keyboard.append([InlineKeyboardButton(text=t(user_id, "btn_delete_server"), callback_data="rp_del_server_menu")])
     keyboard.append([InlineKeyboardButton(text=t(user_id, "back_btn"), callback_data="rust_plus_menu")])
-
-    await callback.message.edit_text(
-        t(user_id, "rp_online_title"),
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard),
-        parse_mode="Markdown"
-    )
+    
+    text = t(user_id, "rp_online_title")
+    if not servers:
+        text += f"\n\n{t(user_id, 'rp_no_servers')}"
+        
+    await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard), parse_mode="Markdown")
     await callback.answer()
 
 @router.callback_query(F.data == "rp_tab_map_click")
-async def rp_tab_map_handler(callback: CallbackQuery):
+async def rp_tab_map(callback: CallbackQuery):
     user_id = callback.from_user.id
     servers = user_servers.get(user_id, [])
     
     keyboard = []
-    for idx, name in enumerate(servers):
-        keyboard.append([InlineKeyboardButton(text=f"🗺 {name}", callback_data=f"rp_map_srv_{idx}")])
-    
-    keyboard.append([
-        InlineKeyboardButton(text=t(user_id, "btn_add_server"), callback_data="rp_add_srv"),
-        InlineKeyboardButton(text=t(user_id, "btn_delete_server"), callback_data="rp_del_srv_menu")
-    ])
+    for srv in servers:
+        keyboard.append([InlineKeyboardButton(text=f"🗺 {srv}", callback_data=f"rp_map_srv_{srv}")])
     keyboard.append([InlineKeyboardButton(text=t(user_id, "back_btn"), callback_data="rust_plus_menu")])
-
-    await callback.message.edit_text(
-        t(user_id, "rp_map_title"),
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard),
-        parse_mode="Markdown"
-    )
+    
+    text = t(user_id, "rp_map_title")
+    if not servers:
+        text += f"\n\n{t(user_id, 'rp_no_servers')}"
+        
+    await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard), parse_mode="Markdown")
     await callback.answer()
 
 @router.callback_query(F.data == "rp_tab_third_click")
-async def rp_tab_third_handler(callback: CallbackQuery):
+async def rp_tab_third(callback: CallbackQuery):
     user_id = callback.from_user.id
-    keyboard = [[InlineKeyboardButton(text=t(user_id, "back_btn"), callback_data="rust_plus_menu")]]
-    await callback.message.edit_text(
-        "⚙️ **Настройки / Прочее**\n\nПоиск по точному названию на BattleMetrics активен.",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard),
-        parse_mode="Markdown"
-    )
+    keyboard = [
+        [InlineKeyboardButton(text=t(user_id, "back_btn"), callback_data="rust_plus_menu")]
+    ]
+    await callback.message.edit_text("⚙️ **Настройки Rust+ и уведомлений вайпа:**\n\nЗдесь вы можете настроить оповещения о выходе глобал/компонент вайпов.", reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard), parse_mode="Markdown")
     await callback.answer()
 
-@router.callback_query(F.data == "rp_add_srv")
-async def rp_add_srv_handler(callback: CallbackQuery, state: FSMContext):
+@router.callback_query(F.data == "rp_add_server_prompt")
+async def rp_add_server_prompt(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
     await callback.message.edit_text(
         t(user_id, "rp_prompt_ip"),
@@ -488,523 +727,54 @@ async def rp_add_srv_handler(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
 
 @router.message(RustPlusFlowState.waiting_for_ip)
-async def rp_process_ip(message: Message, state: FSMContext):
+async def rp_save_server(message: Message, state: FSMContext):
     user_id = message.from_user.id
-    server_name = message.text.strip()
+    srv_name = message.text.strip()
     try:
         await message.delete()
     except Exception:
         pass
-
+        
     if user_id not in user_servers:
         user_servers[user_id] = []
-    
-    user_servers[user_id].append(server_name)
+    if srv_name not in user_servers[user_id]:
+        user_servers[user_id].append(srv_name)
+        
+    await message.answer(t(user_id, "rp_server_added"), reply_markup=back_keyboard(user_id))
     await state.clear()
 
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🟢 К списку онлайн", callback_data="rp_tab_online_click")],
-        [InlineKeyboardButton(text=t(user_id, "home_btn"), callback_data="go_home")]
-    ])
-    await message.answer(t(user_id, "rp_server_added"), reply_markup=keyboard, parse_mode="Markdown")
-
-@router.callback_query(F.data.startswith("rp_online_srv_"))
-async def rp_online_srv_click(callback: CallbackQuery, state: FSMContext):
-    user_id = callback.from_user.id
-    idx = int(callback.data.split("_")[3])
-    servers = user_servers.get(user_id, [])
-    
-    if idx >= len(servers):
-        await callback.answer("Сервер не найден", show_alert=True)
-        return
-        
-    server_name = servers[idx]
-    
-    await callback.message.edit_text(
-        f"🔍 **Ищу на BattleMetrics:** `{server_name}`...\n\nПерехожу в профиль сервера и собираю историю онлайна.",
-        parse_mode="Markdown"
-    )
-    
-    result = await fetch_server_details_by_name(server_name)
-    
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔄 Обновить", callback_data=f"rp_online_srv_{idx}")],
-        [InlineKeyboardButton(text="⬅️ Назад к списку", callback_data="rp_tab_online_click")]
-    ])
-    
-    history_snippet = result['history'][:1500]
-    response_text = f"📊 **Сервер:** `{result['server_name']}`\n\n🕒 **История онлайна (BattleMetrics):**\n```text\n{history_snippet}\n```"
-    
-    await callback.message.edit_text(
-        response_text,
-        reply_markup=keyboard,
-        parse_mode="Markdown"
-    )
-    await callback.answer()
-
-@router.callback_query(F.data.startswith("rp_map_srv_"))
-async def rp_map_srv_click(callback: CallbackQuery, state: FSMContext):
-    user_id = callback.from_user.id
-    idx = int(callback.data.split("_")[3])
-    servers = user_servers.get(user_id, [])
-    
-    if idx >= len(servers):
-        await callback.answer("Сервер не найден", show_alert=True)
-        return
-        
-    name = servers[idx]
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=t(user_id, "back_btn"), callback_data="rp_tab_map_click")]])
-    await callback.message.edit_text(
-        f"🗺 **Карта для сервера `{name}`:**\n\n(Данные загружены)",
-        reply_markup=keyboard,
-        parse_mode="Markdown"
-    )
-    await callback.answer()
-
-@router.callback_query(F.data == "rp_del_srv_menu")
-async def rp_del_srv_menu(callback: CallbackQuery):
+@router.callback_query(F.data == "rp_del_server_menu")
+async def rp_del_server_menu(callback: CallbackQuery):
     user_id = callback.from_user.id
     servers = user_servers.get(user_id, [])
-    if not servers:
-        await callback.answer(t(user_id, "rp_no_servers"), show_alert=True)
-        return
-
+    
     keyboard = []
-    for idx, name in enumerate(servers):
-        keyboard.append([InlineKeyboardButton(text=f"❌ Удалить '{name}'", callback_data=f"rp_del_confirm_{idx}")])
+    for srv in servers:
+        keyboard.append([InlineKeyboardButton(text=f"❌ {srv}", callback_data=f"rp_del_srv_{srv}")])
     keyboard.append([InlineKeyboardButton(text=t(user_id, "back_btn"), callback_data="rust_plus_menu")])
-
-    await callback.message.edit_text(
-        t(user_id, "rp_select_to_del"),
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard),
-        parse_mode="Markdown"
-    )
+    
+    await callback.message.edit_text(t(user_id, "rp_select_to_del"), reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard), parse_mode="Markdown")
     await callback.answer()
 
-@router.callback_query(F.data.startswith("rp_del_confirm_"))
-async def rp_del_confirm(callback: CallbackQuery):
+@router.callback_query(F.data.startswith("rp_del_srv_"))
+async def rp_delete_server_action(callback: CallbackQuery):
     user_id = callback.from_user.id
-    idx = int(callback.data.split("_")[3])
+    srv_name = callback.data.replace("rp_del_srv_", "")
     
-    if user_id in user_servers and len(user_servers[user_id]) > idx:
-        user_servers[user_id].pop(idx)
-
-    await callback.answer(t(user_id, "rp_deleted"), show_alert=True)
-    await rust_plus_menu_handler(callback, FSMContext(storage=dp.storage, key=dp.storage.storage_key(bot=bot, chat_id=callback.message.chat.id, user_id=user_id)))
-
-@router.callback_query(F.data == "raid_calc_start")
-async def raid_calc_start(callback: CallbackQuery, state: FSMContext):
-    user_id = callback.from_user.id
-    await callback.message.edit_text(
-        t(user_id, "raid_title"),
-        reply_markup=back_keyboard(user_id),
-        parse_mode="Markdown"
-    )
-    await state.set_state(RaidCalculatorState.waiting_for_target)
-    await callback.answer()
-
-@router.message(RaidCalculatorState.waiting_for_target)
-async def raid_calc_process(message: Message, state: FSMContext):
-    user_id = message.from_user.id
-    target = message.text.strip().lower()
-    try:
-        await message.delete()
-    except Exception:
-        pass
-
-    calc_result = t(user_id, "raid_result", target=target)
-
-    await message.answer(
-        calc_result,
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text=t(user_id, "btn_calc_more"), callback_data="raid_calc_start")],
-            [InlineKeyboardButton(text=t(user_id, "home_btn"), callback_data="go_home")]
-        ]),
-        parse_mode="Markdown"
-    )
-    await state.clear()
-
-@router.callback_query(F.data == "show_tracked_list")
-async def show_tracked_list(callback: CallbackQuery):
-    user_id = callback.from_user.id
-    players = tracked_players_list.get(user_id, {})
-    
-    if not players:
-        await callback.answer(t(user_id, "no_tracked"), show_alert=True)
-        return
+    if user_id in user_servers and srv_name in user_servers[user_id]:
+        user_servers[user_id].remove(srv_name)
         
-    keyboard = []
-    text_lines = [t(user_id, "tracked_header")]
-    
-    async with aiohttp.ClientSession() as session:
-        for s_id, base_name in players.items():
-            url = f"https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v0002/?key={STEAM_API_KEY}&steamids={s_id}"
-            status_icon = "🔴"
-            name = base_name
-            try:
-                async with session.get(url) as resp:
-                    data = await resp.json()
-                    pl_list = data.get("response", {}).get("players", [])
-                    if pl_list:
-                        p = pl_list[0]
-                        name = p.get("personaname", base_name)
-                        if p.get("gameid") == "252490" or "Rust" in p.get("gameextrainfo", ""):
-                            status_icon = "🟢"
-            except Exception:
-                pass
-            
-            text_lines.append(f"• {name} {status_icon} (ID: `{s_id}`)")
-            keyboard.append([InlineKeyboardButton(text=f"❌ Удалить {name}", callback_data=f"stop_track_{s_id}")])
-            
-    keyboard.append([InlineKeyboardButton(text=t(user_id, "home_btn"), callback_data="go_home")])
-    await callback.message.edit_text("\n".join(text_lines), reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard), parse_mode="Markdown")
-    await callback.answer()
+    await callback.answer(t(user_id, "rp_deleted"), show_alert=True)
+    await rp_tab_online(callback)
 
-@router.callback_query(F.data == "about_bot")
-async def about_bot(callback: CallbackQuery):
+@router.callback_query(F.data.startswith("rp_view_srv_"))
+async def rp_view_server_details(callback: CallbackQuery):
     user_id = callback.from_user.id
-    keyboard = [
-        [
-            InlineKeyboardButton(text="🇷🇺 Русский", callback_data="set_lang_ru"),
-            InlineKeyboardButton(text="🇬🇧 English", callback_data="set_lang_en"),
-            InlineKeyboardButton(text="🇺🇦 Українська", callback_data="set_lang_uk")
-        ],
-        [InlineKeyboardButton(text=t(user_id, "home_btn"), callback_data="go_home")]
-    ]
-    await callback.message.edit_text(
-        t(user_id, "about_text"),
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard),
-        parse_mode="Markdown"
-    )
-    await callback.answer()
-
-@router.callback_query(F.data.startswith("set_lang_"))
-async def set_language_callback(callback: CallbackQuery):
-    user_id = callback.from_user.id
-    lang_code = callback.data.split("_")[2]
-    if lang_code in LANGS:
-        user_languages[user_id] = lang_code
+    srv_name = callback.data.replace("rp_view_srv_", "")
     
-    await callback.answer(t(user_id, "lang_changed"), show_alert=True)
-    await go_home(callback, FSMContext(storage=dp.storage, key=dp.storage.storage_key(bot=bot, chat_id=user_id, user_id=user_id)))
-
-@router.callback_query(F.data == "start_search_id")
-async def start_search_id(callback: CallbackQuery, state: FSMContext):
-    user_id = callback.from_user.id
-    await callback.message.edit_text(
-        t(user_id, "search_id_prompt"),
-        reply_markup=stop_search_keyboard(user_id),
-        parse_mode="Markdown"
-    )
-    last_search_message[user_id] = callback.message.message_id
-    await state.set_state(SearchState.waiting_for_steam_id)
-    await callback.answer()
-
-@router.callback_query(F.data == "start_search_nick")
-async def start_search_nick(callback: CallbackQuery, state: FSMContext):
-    user_id = callback.from_user.id
-    await callback.message.edit_text(
-        t(user_id, "search_nick_prompt"),
-        reply_markup=stop_search_keyboard(user_id),
-        parse_mode="Markdown"
-    )
-    last_search_message[user_id] = callback.message.message_id
-    await state.set_state(SearchState.waiting_for_nickname)
-    await callback.answer()
-
-@router.message(SearchState.waiting_for_steam_id)
-async def process_steam_id_input(message: Message, state: FSMContext):
-    user_id = message.from_user.id
-    user_input = message.text.strip()
-    try:
-        await message.delete()
-    except Exception:
-        pass
-
-    if "steamcommunity.com/id/" in user_input:
-        user_input = user_input.rstrip("/").split("/")[-1]
-    elif "steamcommunity.com/profiles/" in user_input:
-        user_input = user_input.rstrip("/").split("/")[-1]
-
-    steam_id = None
-    if user_input.isdigit() and len(user_input) == 17:
-        steam_id = user_input
-    else:
-        async with aiohttp.ClientSession() as session:
-            vanity_url = f"https://api.steampowered.com/ISteamUser/ResolveVanityURL/v0001/?key={STEAM_API_KEY}&vanityurl={user_input}"
-            async with session.get(vanity_url) as resp:
-                data = await resp.json()
-                if data.get("response", {}).get("success") == 1:
-                    steam_id = data.get("response", {}).get("steamid")
-
-    if not steam_id:
-        msg_id = last_search_message.get(user_id)
-        if msg_id:
-            try:
-                await bot.edit_message_text(t(user_id, "search_not_found"), chat_id=user_id, message_id=msg_id, reply_markup=stop_search_keyboard(user_id))
-            except Exception:
-                pass
-        return
-
-    await show_player_profile(message, steam_id, state)
-
-@router.message(SearchState.waiting_for_nickname)
-async def process_nickname_input(message: Message, state: FSMContext):
-    user_id = message.from_user.id
-    query = message.text.strip()
-    try:
-        await message.delete()
-    except Exception:
-        pass
-
-    msg_id = last_search_message.get(user_id)
-    if msg_id:
-        try:
-            await bot.edit_message_text(t(user_id, "search_progress", query=query), chat_id=user_id, message_id=msg_id, reply_markup=stop_search_keyboard(user_id))
-        except Exception:
-            pass
-
-    found_players = []
-    async with aiohttp.ClientSession() as session:
-        community_search_url = f"https://steamcommunity.com/search/suggestext/?text={quote(query)}&category=users&l=russian"
-        async with session.get(community_search_url) as resp:
-            if resp.status == 200:
-                try:
-                    items = await resp.json()
-                    for item in items:
-                        s_id = item.get("steamID")
-                        name = item.get("name")
-                        if s_id and name:
-                            found_players.append({"steamid": s_id, "name": name})
-                except Exception:
-                    pass
-
-    if not found_players:
-        err_text = t(user_id, "search_empty", query=query)
-        if msg_id:
-            try:
-                await bot.edit_message_text(err_text, chat_id=user_id, message_id=msg_id, reply_markup=stop_search_keyboard(user_id), parse_mode="Markdown")
-            except Exception:
-                pass
-        return
-
-    if len(found_players) == 1:
-        await show_player_profile(message, found_players[0]["steamid"], state)
-        return
-
-    search_cache[user_id] = {"players": found_players, "query": query}
-    await send_search_page(user_id, page=0)
-
-async def send_search_page(user_id: int, page: int = 0):
-    data = search_cache.get(user_id)
-    msg_id = last_search_message.get(user_id)
-    if not data or not msg_id:
-        return
-
-    players = data["players"]
-    nickname = data["query"]
+    await callback.answer("⏳ Загрузка информации о сервере...")
+    info = await fetch_server_details_by_name(srv_name)
     
-    per_page = 5
-    total_pages = (len(players) + per_page - 1) // per_page
-    page = max(0, min(page, total_pages - 1))
-
-    current_slice = players[page * per_page : (page + 1) * per_page]
-
-    keyboard = []
-    for p in current_slice:
-        keyboard.append([InlineKeyboardButton(text=p["name"], callback_data=f"select_player_{p['steamid']}")])
-
-    nav_buttons = []
-    if page > 0:
-        nav_buttons.append(InlineKeyboardButton(text="⬅️", callback_data=f"search_page_{page - 1}"))
-    if page < total_pages - 1:
-        nav_buttons.append(InlineKeyboardButton(text="➡️", callback_data=f"search_page_{page + 1}"))
-    
-    if nav_buttons:
-        keyboard.append(nav_buttons)
-
-    keyboard.append([InlineKeyboardButton(text=t(user_id, "stop_search"), callback_data="go_home")])
-
-    text = f"🔍 Результаты поиска / Search results for **{nickname}** (Стр. {page + 1}/{total_pages}):"
-    try:
-        await bot.edit_message_text(text, chat_id=user_id, message_id=msg_id, reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard), parse_mode="Markdown")
-    except Exception:
-        pass
-
-@router.callback_query(F.data.startswith("search_page_"))
-async def search_page_callback(callback: CallbackQuery):
-    page = int(callback.data.split("_")[2])
-    await send_search_page(callback.from_user.id, page=page)
-    await callback.answer()
-
-@router.callback_query(F.data.startswith("select_player_"))
-async def select_player_callback(callback: CallbackQuery, state: FSMContext):
-    steam_id = callback.data.split("_")[2]
-    await show_player_profile(callback.message, steam_id, state)
-    await callback.answer()
-
-async def show_player_profile(message_or_callback, steam_id: str, state: FSMContext):
-    chat_id = message_or_callback.chat.id if hasattr(message_or_callback, "chat") else message_or_callback.message.chat.id
-    user_id = chat_id
-    msg_id = last_search_message.get(user_id)
-
-    if msg_id:
-        try:
-            await bot.edit_message_text(t(user_id, "profile_loading"), chat_id=user_id, message_id=msg_id)
-        except Exception:
-            pass
-
-    async with aiohttp.ClientSession() as session:
-        profile_url = f"https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v0002/?key={STEAM_API_KEY}&steamids={steam_id}"
-        async with session.get(profile_url) as resp:
-            data = await resp.json()
-            players = data.get("response", {}).get("players", [])
-            if not players:
-                if msg_id:
-                    await bot.edit_message_text(t(user_id, "profile_hidden"), chat_id=user_id, message_id=msg_id, reply_markup=result_keyboard(user_id, steam_id))
-                return
-            
-            player = players[0]
-            name = player.get("personaname", "Неизвестно")
-            profile_link = player.get("profileurl", "")
-            gameid = player.get("gameid")
-            game_ext_info = player.get("gameextrainfo", "")
-
-        status_text = t(user_id, "offline")
-        if gameid == "252490" or "Rust" in game_ext_info:
-            status_text = t(user_id, "playing_rust", server=game_ext_info or 'Official server')
-
-        rust_hours = 0
-        rust_hours_2weeks = 0
-        stats_url = f"https://api.steampowered.com/IPlayerService/GetOwnedGames/v0001/?key={STEAM_API_KEY}&steamid={steam_id}&format=json"
-        async with session.get(stats_url) as resp:
-            stats_data = await resp.json()
-            for g in stats_data.get("response", {}).get("games", []):
-                if str(g.get("appid")) == "252490":
-                    rust_hours = round(g.get("playtime_forever", 0) / 60, 1)
-                    rust_hours_2weeks = round(g.get("playtime_2weeks", 0) / 60, 1)
-
-        servers_activity_text = t(user_id, "stats_block", hours=rust_hours_2weeks)
-
-        response_text = t(
-            user_id, "profile_view",
-            name=name,
-            status=status_text,
-            hours=rust_hours,
-            stats=servers_activity_text,
-            link=profile_link,
-            sid=steam_id
-        )
-
-        is_tracked = user_id in active_trackers and steam_id in active_trackers[user_id]
-
-        if msg_id:
-            try:
-                await bot.edit_message_text(
-                    response_text,
-                    chat_id=user_id,
-                    message_id=msg_id,
-                    reply_markup=result_keyboard(user_id, steam_id, is_tracked=is_tracked),
-                    parse_mode="Markdown",
-                    disable_web_page_preview=True
-                )
-            except Exception:
-                pass
-
-@router.callback_query(F.data.startswith("check_bans_"))
-async def check_rust_bans(callback: CallbackQuery):
-    user_id = callback.from_user.id
-    steam_id = callback.data.split("_")[2]
-    ban_info = t(user_id, "bans_msg", sid=steam_id)
-    await callback.answer(ban_info, show_alert=True)
-
-async def player_monitor_loop(user_id: int, steam_id: str):
-    was_in_rust = None
-    
-    while True:
-        try:
-            async with aiohttp.ClientSession() as session:
-                url = f"https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v0002/?key={STEAM_API_KEY}&steamids={steam_id}"
-                async with session.get(url) as resp:
-                    data = await resp.json()
-                    players = data.get("response", {}).get("players", [])
-                    if players:
-                        p = players[0]
-                        name = p.get("personaname", "Игрок")
-                        gameid = p.get("gameid")
-                        game_ext_info = p.get("gameextrainfo", "")
-                        
-                        is_currently_in_rust = (gameid == "252490" or "Rust" in game_ext_info)
-                        server_name = game_ext_info if game_ext_info else "Official / Community Server"
-
-                        if was_in_rust is not None:
-                            if not was_in_rust and is_currently_in_rust:
-                                await bot.send_message(
-                                    user_id,
-                                    f"🟢 **ВНИМАНИЕ!** Отслеживаемый игрок **{name}** (`{steam_id}`) **зашел в Rust**!\n🌐 Сервер: `{server_name}`",
-                                    parse_mode="Markdown"
-                                )
-                            elif was_in_rust and not is_currently_in_rust:
-                                await bot.send_message(
-                                    user_id,
-                                    f"🔴 **ВНИМАНИЕ!** Игрок **{name}** (`{steam_id}`) **вышел из игры**.",
-                                    parse_mode="Markdown"
-                                )
-
-                        was_in_rust = is_currently_in_rust
-        except Exception as e:
-            logging.error(f"Ошибка в фоновом мониторинге игрока {steam_id}: {e}")
-
-        await asyncio.sleep(30)
-
-@router.callback_query(F.data.startswith("start_track_"))
-async def start_track_player(callback: CallbackQuery):
-    steam_id = callback.data.split("_")[2]
-    user_id = callback.from_user.id
-    
-    if user_id not in active_trackers:
-        active_trackers[user_id] = {}
-    if user_id not in tracked_players_list:
-        tracked_players_list[user_id] = {}
-
-    if steam_id in active_trackers[user_id]:
-        active_trackers[user_id][steam_id].cancel()
-
-    task = asyncio.create_task(player_monitor_loop(user_id, steam_id))
-    active_trackers[user_id][steam_id] = task
-    tracked_players_list[user_id][steam_id] = steam_id
-
-    await callback.answer(t(user_id, "track_on"), show_alert=True)
-    try:
-        await callback.message.edit_reply_markup(reply_markup=result_keyboard(user_id, steam_id, is_tracked=True))
-    except Exception:
-        pass
-
-@router.callback_query(F.data.startswith("stop_track_"))
-async def stop_track_player(callback: CallbackQuery):
-    steam_id = callback.data.split("_")[2]
-    user_id = callback.from_user.id
-    
-    if user_id in active_trackers and steam_id in active_trackers[user_id]:
-        active_trackers[user_id][steam_id].cancel()
-        del active_trackers[user_id][steam_id]
-    if user_id in tracked_players_list and steam_id in tracked_players_list[user_id]:
-        del tracked_players_list[user_id][steam_id]
-
-    await callback.answer(t(user_id, "track_off"), show_alert=True)
-    if callback.message.text and ("Мои отслеживания" in callback.message.text or "Tracked" in callback.message.text or "відстеження" in callback.message.text):
-        await show_tracked_list(callback)
-    else:
-        try:
-            await callback.message.edit_reply_markup(reply_markup=result_keyboard(user_id, steam_id, is_tracked=False))
-        except Exception:
-            pass
-
-async def main():
-    dp.include_router(router)
-    await bot.delete_webhook(drop_pending_updates=True)
-    print("Бот запущен!")
-    await dp.start_polling(bot)
-
-if __name__ == "__main__":
-    asyncio.run(main())
+    text = (
+        f"🟢 **Сервер:** `{info['server_name']}`\n\n"
+        f"📋 **Последняя активность / История:**\n```text\n{info['history'][:600]}\n
