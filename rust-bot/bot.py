@@ -1,122 +1,161 @@
-import asyncio
-import logging
-from aiogram import Bot, Dispatcher, types, F
-from aiogram.filters import Command
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-import aiohttp
 import os
-from dotenv import load_dotenv
+import aiohttp
+asyncio = __import__('asyncio')
+from aiogram import Bot, Dispatcher, F, Router
+from aiogram.filters import Command
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
 
-load_dotenv()
-
-logging.basicConfig(level=logging.INFO)
-
-bot = Bot(token=os.getenv("BOT_TOKEN"))
-dp = Dispatcher()
-
+BOT_TOKEN = os.getenv("BOT_TOKEN")
 STEAM_API_KEY = os.getenv("STEAM_API_KEY")
 
-async def get_steam_info(steamid: str):
-    url = f"https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v0002/?key={STEAM_API_KEY}&steamids={steamid}"
-    async with aiohttp.ClientSession() as session:
-        async with session.get(url) as resp:
-            if resp.status != 200:
-                return None
-            data = await resp.json()
-            players = data.get("response", {}).get("players", [])
-            return players[0] if players else None
+bot = Bot(token=BOT_TOKEN)
+dp = Dispatcher()
+router = Router()
 
-async def search_battlemetrics(player_name: str = None, steamid: str = None):
-    url = "https://api.battlemetrics.com/players"
-    params = {"page[size]": 10, "filter[game]": "rust"}
-    if player_name:
-        params["filter[search]"] = player_name
-    if steamid:
-        params["filter[steamID]"] = steamid
+class SearchState(StatesGroup):
+    waiting_for_steam_id = State()
 
-    async with aiohttp.ClientSession() as session:
-        async with session.get(url, params=params) as resp:
-            if resp.status == 200:
-                return await resp.json()
-    return None
-
-@dp.message(Command("start"))
-async def start(message: types.Message):
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔍 Поиск по нику", callback_data="search_nick")],
-        [InlineKeyboardButton(text="🔍 Поиск по SteamID64", callback_data="search_steam")],
-        [InlineKeyboardButton(text="ℹ️ О боте", callback_data="about")]
+# Клавиатуры
+def main_keyboard():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔍 Найти игрока Rust", callback_data="start_search")]
     ])
+
+def back_keyboard():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="⬅️ Вернуться на самое начало", callback_data="go_home")]
+    ])
+
+def result_keyboard(steam_id):
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔔 Отслеживать игрока", callback_data=f"track_{steam_id}")],
+        [InlineKeyboardButton(text="⬅️ Вернуться на самое начало", callback_data="go_home")]
+    ])
+
+@router.message(Command("start"))
+async def cmd_start(message: Message, state: FSMContext):
+    await state.clear()
     await message.answer(
-        "🌲 <b>Rust Player Tracker</b>\n\n"
-        "Отслеживаем игроков в Rust в реальном времени\n"
-        "Steam + BattleMetrics\n\n"
-        "Выбери действие:",
-        reply_markup=kb,
-        parse_mode="HTML"
+        "Привет! Я бот для поиска и отслеживания игроков **Rust** по Steam ID.\n\n"
+        "Нажми кнопку ниже, чтобы начать поиск:",
+        reply_markup=main_keyboard(),
+        parse_mode="Markdown"
     )
 
-@dp.callback_query(F.data == "search_nick")
-async def ask_nick(callback: types.CallbackQuery):
-    await callback.message.edit_text("✍️ Введи **никнейм** игрока:")
-    await callback.answer()
-
-@dp.callback_query(F.data == "search_steam")
-async def ask_steam(callback: types.CallbackQuery):
-    await callback.message.edit_text("✍️ Введи **SteamID64** игрока:\n\nПример: `76561198000000000`")
-    await callback.answer()
-
-@dp.callback_query(F.data == "about")
-async def about(callback: types.CallbackQuery):
+@router.callback_query(F.data == "go_home")
+async def go_home(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
     await callback.message.edit_text(
-        "ℹ️ <b>О боте</b>\n\n"
-        "• Работает через Steam API и BattleMetrics\n"
-        "• Показывает онлайн статус и текущий сервер\n"
-        "• Быстрый поиск по нику или ID\n\n"
-        "Разработано с ❤️ для Rust сообщества",
-        parse_mode="HTML"
+        "Главное меню. Выберите действие:",
+        reply_markup=main_keyboard()
     )
     await callback.answer()
 
-@dp.message()
-async def handle_search(message: types.Message):
-    text = message.text.strip()
-    if not text or text.startswith('/'):
+@router.callback_query(F.data == "start_search")
+async def start_search(callback: CallbackQuery, state: FSMContext):
+    await state.message.edit_text(
+        "Отправьте мне **Steam ID** (в формате 64-bit, например: `76561198000000000`) игрока:",
+        reply_markup=back_keyboard(),
+        parse_mode="Markdown"
+    )
+    await state.set_state(SearchState.waiting_for_steam_id)
+    await callback.answer()
+
+@router.message(SearchState.waiting_for_steam_id)
+async def process_steam_id(message: Message, state: FSMContext):
+    steam_id = message.text.strip()
+    
+    if not steam_id.isdigit() or len(steam_id) != 17:
+        await message.answer(
+            "❌ Неверный формат Steam ID. ID должен состоять из 17 цифр.\nПопробуйте еще раз или нажмите кнопку возврата:",
+            reply_markup=back_keyboard()
+        )
         return
 
-    wait_msg = await message.answer("🔎 <b>Ищу игрока...</b>", parse_mode="HTML")
+    msg = await message.answer("🔍 Ищу информацию об игроке в Steam и на игровых серверах...")
 
-    if text.isdigit() and len(text) > 15:
-        steam_info = await get_steam_info(text)
-        bm_data = await search_battlemetrics(steamid=text)
-    else:
-        steam_info = None
-        bm_data = await search_battlemetrics(player_name=text)
+    async with aiohttp.ClientSession() as session:
+        # 1. Получаем общую инфу профиля
+        profile_url = f"https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v0002/?key={STEAM_API_KEY}&steamids={steam_id}"
+        async with session.get(profile_url) as resp:
+            data = await resp.json()
+            players = data.get("response", {}).get("players", [])
+            
+            if not players:
+                await msg.edit_text("❌ Игрок с таким Steam ID не найден.", reply_markup=back_keyboard())
+                await state.clear()
+                return
+            
+            player = players[0]
+            name = player.get("personaname", "Неизвестно")
+            avatar = player.get("avatarfull", "")
+            profile_link = player.get("profileurl", "")
+            gameid = player.get("gameid")
+            game_ext_info = player.get("gameextrainfo", "")
 
-    response = "📊 <b>Результат поиска</b>\n\n"
+        # Определяем статус в игре
+        status_text = "🔴 Оффлайн / Не в игре"
+        if gameid == "252490" or "Rust" in game_ext_info:
+            status_text = "🟢 Играет в Rust прямо сейчас!"
+        elif gameid:
+            status_text = f"🎮 Играет в другую игру: {game_ext_info}"
 
-    if steam_info:
-        name = steam_info.get("personaname", "Неизвестно")
-        status = "🟢 **Онлайн**" if steam_info.get("personastate") == 1 else "🔴 Оффлайн"
-        response += f"👤 Ник: <b>{name}</b>\n"
-        response += f"Статус: {status}\n"
-        
-        if "gameextrainfo" in steam_info:
-            game = steam_info["gameextrainfo"]
-            response += f"🎮 Играет в: <b>{game}</b>\n"
+        # Дополнительные ссылки на площадки
+        faceit_link = f"https://www.faceit.com/en/players/{name}" # Пример универсальной ссылки
+        steamrep_link = f"https://steamrep.com/profiles/{steam_id}"
 
-    if bm_data and bm_data.get("data"):
-        player = bm_data["data"][0]
-        attr = player.get("attributes", {})
-        response += f"\n🖥️ Сервер: <b>{attr.get('server', 'Неизвестно')}</b>\n"
-        response += f"⏱️ В игре: {attr.get('playtime', '—')}\n"
+        response_text = (
+            f"👤 **Игрок:** {name}\n"
+            f"📌 **Статус:** {status_text}\n\n"
+            f"🔗 **Ссылки:**\n"
+            f"• [Профиль Steam]({profile_link})\n"
+            f"• [SteamRep (проверка банов)]({steamrep_link})\n\n"
+            f"*(Информацию по конкретным серверам Rust сторонние API отдают только при наличии открытого игрового лога или по кастомным базам данных).* "
+        )
 
-    if not steam_info and not (bm_data and bm_data.get("data")):
-        response += "❌ Игрок не найден или профиль закрыт."
+        await msg.delete()
+        await message.answer(
+            f"{response_text}",
+            reply_markup=result_keyboard(steam_id),
+            parse_mode="Markdown",
+            disable_web_page_preview=True
+        )
+    
+    await state.clear()
 
-    await wait_msg.edit_text(response, parse_mode="HTML")
+@router.callback_query(F.data.startswith("track_"))
+async def track_player(callback: CallbackQuery):
+    steam_id = callback.data.split("_")[1]
+    await callback.answer("✅ Вы подписались на уведомления об игроке!", show_alert=True)
+    
+    # Фоновая проверка статуса игрока для отслеживания
+    async def background_tracker():
+        async with aiohttp.ClientSession() as session:
+            last_status = None
+            for _ in range(10): # Проверяем 10 раз (пример для демонстрации цикла)
+                await asyncio.sleep(60)
+                url = f"https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v0002/?key={STEAM_API_KEY}&steamids={steam_id}"
+                async with session.get(url) as resp:
+                    data = await resp.json()
+                    players = data.get("response", {}).get("players", [])
+                    if players:
+                        gameid = players[0].get("gameid")
+                        is_in_rust = (gameid == "252490")
+                        
+                        if is_in_rust != last_status:
+                            last_status = is_in_rust
+                            if is_in_rust:
+                                await bot.send_message(callback.from_user.id, f"🚨 ВНИМАНИЕ! Игрок (ID: `{steam_id}`) зашел в **Rust**!", parse_mode="Markdown")
+                            else:
+                                await bot.send_message(callback.from_user.id, f"💤 Игрок (ID: `{steam_id}`) вышел из игры **Rust**.", parse_mode="Markdown")
+
+    asyncio.create_task(background_tracker())
 
 async def main():
+    dp.include_router(router)
+    await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
