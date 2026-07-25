@@ -706,21 +706,21 @@ async def background_player_monitor():
 
                                 if is_in_rust and not last_status:
                                     try:
-                                        # 1. Первое уведомление: что игрок зашел в Rust
+                                        # 1. Первое уведомление: что игрок просто зашел в Rust
                                         await bot.send_message(
                                             user_id, 
                                             t(user_id, "notif_entered", name=name), 
                                             parse_mode="Markdown"
                                         )
                                         
-                                        # 2. Второе уведомление отдельным сообщением снизу: на какой сервер
-                                        server_name = game_extra if game_extra else "Неизвестный сервер"
-                                        await asyncio.sleep(0.3)
-                                        await bot.send_message(
-                                            user_id, 
-                                            t(user_id, "notif_server", server=server_name), 
-                                            parse_mode="Markdown"
-                                        )
+                                        # 2. Второе уведомление отправляем ТОЛЬКО если в game_extra есть реальное название (не просто "Rust")
+                                        if game_extra and game_extra.strip().lower() != "rust":
+                                            await asyncio.sleep(0.3)
+                                            await bot.send_message(
+                                                user_id, 
+                                                t(user_id, "notif_server", server=game_extra), 
+                                                parse_mode="Markdown"
+                                            )
                                     except Exception as e:
                                         logging.error(f"Failed to send enter notification: {e}")
                                 
