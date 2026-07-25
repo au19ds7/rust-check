@@ -87,7 +87,8 @@ LANGS = {
         "bans_msg": "🛡 **Проверка банов для `{sid}`:**\n\n• Игровых/VAC банов: не обнаружено\n• Статус: Чист",
         "track_on": "✅ Отслеживание успешно включено! Я буду присылать уведомления, когда игрок заходит или выходит из Rust.",
         "track_off": "🛑 Отслеживание остановлено.",
-        "notif_entered": "🔔 **Внимание!** Отслеживаемый игрок `{name}` зашел в Rust!\n🌐 **Сервер:** `{server}`",
+        "notif_entered": "🔔 **Внимание!** Отслеживаемый игрок `{name}` зашел в Rust!",
+        "notif_server": "🌐 **Игрок зашел на сервер:** `{server}`",
         "notif_left": "🔕 Игрок `{name}` вышел из Rust."
     },
     "en": {
@@ -142,7 +143,8 @@ LANGS = {
         "bans_msg": "🛡 Clean",
         "track_on": "✅ Tracking enabled!",
         "track_off": "🛑 Tracking stopped.",
-        "notif_entered": "🔔 Tracked player `{name}` joined Rust!\n🌐 **Server:** `{server}`",
+        "notif_entered": "🔔 Tracked player `{name}` joined Rust!",
+        "notif_server": "🌐 **Player joined server:** `{server}`",
         "notif_left": "🔕 Player `{name}` left Rust."
     },
     "uk": {
@@ -197,7 +199,8 @@ LANGS = {
         "bans_msg": "🛡 Чистий",
         "track_on": "✅ Увімкнено!",
         "track_off": "🛑 Зупинено.",
-        "notif_entered": "🔔 Гравець `{name}` зайшов у Rust!\n🌐 **Сервер:** `{server}`",
+        "notif_entered": "🔔 Гравець `{name}` зайшов у Rust!",
+        "notif_server": "🌐 **Гравець зайшов на сервер:** `{server}`",
         "notif_left": "🔕 Гравець `{name}` вийшов з Rust."
     }
 }
@@ -703,10 +706,19 @@ async def background_player_monitor():
 
                                 if is_in_rust and not last_status:
                                     try:
-                                        server_name = game_extra if game_extra else "Неизвестный сервер"
+                                        # 1. Первое уведомление: что игрок зашел в Rust
                                         await bot.send_message(
                                             user_id, 
-                                            t(user_id, "notif_entered", name=name, server=server_name), 
+                                            t(user_id, "notif_entered", name=name), 
+                                            parse_mode="Markdown"
+                                        )
+                                        
+                                        # 2. Второе уведомление отдельным сообщением снизу: на какой сервер
+                                        server_name = game_extra if game_extra else "Неизвестный сервер"
+                                        await asyncio.sleep(0.3)
+                                        await bot.send_message(
+                                            user_id, 
+                                            t(user_id, "notif_server", server=server_name), 
                                             parse_mode="Markdown"
                                         )
                                     except Exception as e:
