@@ -292,7 +292,6 @@ async def go_home(callback: CallbackQuery, state: FSMContext):
     )
     await callback.answer()
 
-# --- О БОТЕ И СМЕНА ЯЗЫКА ---
 @router.callback_query(F.data == "about_bot")
 async def about_bot_handler(callback: CallbackQuery):
     user_id = callback.from_user.id
@@ -324,7 +323,6 @@ async def set_language_handler(callback: CallbackQuery):
         parse_mode="Markdown"
     )
 
-# --- ПОИСК ПО STEAM ID / ССЫЛКЕ / НИКНЕЙМУ ---
 @router.callback_query(F.data == "start_search_id")
 async def start_search_id(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
@@ -471,7 +469,6 @@ async def show_player_profile_by_id(user_id: int, steam_id: str, msg_id: int, st
                     last_search_message[user_id] = sent.message_id
     await state.clear()
 
-# --- ПОИСК ПО НИКНЕЙМУ С ПАГИНАЦИЕЙ ---
 @router.callback_query(F.data == "start_search_nick")
 async def start_search_nick(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
@@ -566,7 +563,6 @@ async def select_searched_id(callback: CallbackQuery, state: FSMContext):
     await show_player_profile_by_id(user_id, steam_id, callback.message.message_id, state)
     await callback.answer()
 
-# --- ПРОВЕРКА БАНОВ ---
 @router.callback_query(F.data.startswith("check_bans_"))
 async def check_bans_handler(callback: CallbackQuery):
     user_id = callback.from_user.id
@@ -594,7 +590,6 @@ async def check_bans_handler(callback: CallbackQuery):
                 
     await callback.answer(msg, show_alert=True)
 
-# --- ОТСЛЕЖИВАНИЕ ИГРОКОВ ---
 @router.callback_query(F.data.startswith("start_track_"))
 async def start_track_player(callback: CallbackQuery):
     user_id = callback.from_user.id
@@ -604,8 +599,6 @@ async def start_track_player(callback: CallbackQuery):
         tracked_players_list[user_id] = set()
     tracked_players_list[user_id].add(steam_id)
     
-    # Принудительно запрашиваем текущий статус игрока при добавлении в отслеживание,
-    # чтобы фоновый монитор сразу знал начальное состояние (в Rust он или нет)
     url = f"https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v0002/?key={STEAM_API_KEY}&steamids={steam_id}"
     try:
         async with aiohttp.ClientSession() as session:
@@ -667,7 +660,7 @@ async def show_tracked_list(callback: CallbackQuery):
 
 async def background_player_monitor():
     while True:
-        await asyncio.sleep(30)  # Проверка каждые 30 секунд
+        await asyncio.sleep(5)  # Интервал проверки сокращен до 5 секунд для мгновенной реакции
         if not tracked_players_list:
             continue
             
@@ -687,13 +680,15 @@ async def background_player_monitor():
                     data = await resp.json()
                     players = data.get("response", {}).get("players", [])
                     
+                    # Собираем статусы тех, кого вернул Steam API
+                    found_sids = set()
                     for p in players:
                         sid = p.get("steamid")
+                        found_sids.add(sid)
                         name = p.get("personaname", "Player")
                         gameid = str(p.get("gameid", ""))
                         game_extra = p.get("gameextrainfo", "")
                         
-                        # Проверка, играет ли игрок именно в Rust (по appid или названию игры)
                         is_in_rust = (gameid == "252490" or "Rust" in game_extra)
                         
                         for user_id, user_sids in tracked_players_list.items():
@@ -703,31 +698,38 @@ async def background_player_monitor():
                                 
                                 last_status = player_last_status[user_id].get(sid)
                                 
-                                # Если статус еще не был записан, сохраняем и пропускаем первую итерацию
                                 if last_status is None:
                                     player_last_status[user_id][sid] = is_in_rust
                                     continue
 
-                                # Если игрок зашел в Rust (раньше не был в Rust, а теперь в Rust)
                                 if is_in_rust and not last_status:
                                     try:
                                         await bot.send_message(user_id, t(user_id, "notif_entered", name=name), parse_mode="Markdown")
                                     except Exception as e:
                                         logging.error(f"Failed to send enter notification: {e}")
                                 
-                                # Если игрок вышел из Rust (раньше был в Rust, а теперь вышел)
                                 elif not is_in_rust and last_status:
                                     try:
                                         await bot.send_message(user_id, t(user_id, "notif_left", name=name), parse_mode="Markdown")
                                     except Exception as e:
                                         logging.error(f"Failed to send leave notification: {e}")
                                 
-                                # Обновляем текущий статус игрока
                                 player_last_status[user_id][sid] = is_in_rust
+
+                    # Если вдруг Steam API отдал пустой ответ или игрок скрыл профиль / вышел в офлайн (API не возвращает его)
+                    for user_id, user_sids in tracked_players_list.items():
+                        for sid in user_sids:
+                            if sid not in found_sids:
+                                if user_id in player_last_status and player_last_status[user_id].get(sid) == True:
+                                    player_last_status[user_id][sid] = False
+                                    try:
+                                        await bot.send_message(user_id, t(user_id, "notif_left", name=f"ID {sid}"), parse_mode="Markdown")
+                                    except Exception as e:
+                                        logging.error(f"Failed to send forced leave notification: {e}")
+
         except Exception as e:
             logging.error(f"Background monitor error: {e}")
 
-# --- RUST+ И МЕНЮ СЕРВЕРОВ ---
 @router.callback_query(F.data == "rust_plus_menu")
 async def rust_plus_menu_handler(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
@@ -909,7 +911,6 @@ async def fetch_server_details_by_name(server_name: str):
             "history": bm_history_text
         }
 
-# --- КАЛЬКУЛЯТОР РЕЙДА ---
 @router.callback_query(F.data == "raid_calc_start")
 async def raid_calc_start(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
@@ -939,7 +940,6 @@ async def process_raid_target(message: Message, state: FSMContext):
     await message.answer(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard), parse_mode="Markdown")
     await state.clear()
 
-# --- РЕЖИМ ЗАЯЦ ---
 @router.callback_query(F.data == "zayats_menu_start")
 async def zayats_menu_start(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
@@ -977,7 +977,6 @@ async def process_zayats_input(message: Message, state: FSMContext):
     )
     await state.clear()
 
-# --- ЗАПУСК БОТА ---
 async def main():
     dp.include_router(router)
     await bot.delete_webhook(drop_pending_updates=True)
