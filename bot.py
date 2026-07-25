@@ -5,7 +5,6 @@ import asyncio
 import logging
 import re
 from urllib.parse import quote
-from bs4 import BeautifulSoup
 
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.filters import Command
@@ -17,6 +16,7 @@ logging.basicConfig(level=logging.INFO)
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 STEAM_API_KEY = os.getenv("STEAM_API_KEY")
+BM_API_KEY = os.getenv("BATTLEMETRICS_API_KEY", "") # Необязательный токен BattleMetrics API для расширенных запросов
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
@@ -54,14 +54,14 @@ LANGS = {
         "rp_tab_online": "🟢 1. Онлайн",
         "rp_tab_map": "🗺 2. Карта",
         "rp_tab_third": "⚙️ 3. Настройки / Прочее",
-        "rp_online_title": "🟢 **Список серверов (Онлайн):**\n\nВыберите сервер или добавьте его по точному названию:",
-        "rp_map_title": "🗺 **Список серверов (Карта):**\n\nВведите IP/название сервера для поиска карты:",
+        "rp_online_title": "🟢 **Список серверов (Онлайн):**\n\nВыберите сервер или добавьте его по точному названию или IP:",
+        "rp_map_title": "🗺 **Поиск карты сервера:**",
         "btn_add_server": "➕ Добавить сервер",
         "btn_delete_server": "🗑 Удалить сервер",
-        "rp_prompt_ip": "🌐 **Введите точное название сервера Rust**\n\nНапример: `Official Server #1`",
-        "rp_prompt_map_search": "🗺 **Введите IP или название сервера для поиска карты:**",
-        "rp_map_not_found": "❌ Не удалось найти карту для этого сервера. Проверьте правильность названия/IP.",
-        "rp_map_loading": "🗺 Ищу карту и генерирую изображение...",
+        "rp_prompt_ip": "🌐 **Введите IP или точное название сервера Rust**\n\nНапример: `193.70.80.12:28015` или `Official Server #1`",
+        "rp_prompt_map_search": "🗺 **Введите IP или название сервера для поиска карты:**\n\n*(Бот найдет сервер через BattleMetrics и отправит карту)*",
+        "rp_map_not_found": "❌ Не удалось найти карту для этого сервера. Проверьте правильность IP или названия.",
+        "rp_map_loading": "🗺 Запрашиваю данные с BattleMetrics и ищу карту...",
         "rp_server_added": "✅ Сервер успешно добавлен в список!",
         "rp_no_servers": "📭 Список серверов пуст.",
         "rp_select_to_del": "🗑 Выберите сервер для удаления:",
@@ -114,13 +114,13 @@ LANGS = {
         "rp_tab_map": "🗺 2. Map",
         "rp_tab_third": "⚙️ 3. Settings / Other",
         "rp_online_title": "🟢 **Servers List (Online):**",
-        "rp_map_title": "🗺 **Servers List (Map):**",
+        "rp_map_title": "🗺 **Server Map Search:**",
         "rp_prompt_map_search": "🗺 **Enter server IP or name to search map:**",
         "rp_map_not_found": "❌ Map not found.",
-        "rp_map_loading": "🗺 Searching map...",
+        "rp_map_loading": "🗺 Searching map via BattleMetrics...",
         "btn_add_server": "➕ Add server",
         "btn_delete_server": "🗑 Delete server",
-        "rp_prompt_ip": "🌐 **Enter exact server name**",
+        "rp_prompt_ip": "🌐 **Enter exact server name or IP**",
         "rp_server_added": "✅ Server successfully added!",
         "rp_no_servers": "📭 Server list is empty.",
         "rp_select_to_del": "🗑 Select server to delete:",
@@ -173,13 +173,13 @@ LANGS = {
         "rp_tab_map": "🗺 2. Карта",
         "rp_tab_third": "⚙️ 3. Інше",
         "rp_online_title": "🟢 **Список серверів (Онлайн):**",
-        "rp_map_title": "🗺 **Список серверів (Карта):**",
+        "rp_map_title": "🗺 **Пошук карти сервера:**",
         "rp_prompt_map_search": "🗺 **Введіть IP або назву сервера для пошуку карти:**",
         "rp_map_not_found": "❌ Карту не знайдено.",
-        "rp_map_loading": "🗺 Шукаю карту...",
+        "rp_map_loading": "🗺 Шукаю карту через BattleMetrics...",
         "btn_add_server": "➕ Додати сервер",
         "btn_delete_server": "🗑 Видалити",
-        "rp_prompt_ip": "🌐 **Введіть назву сервера**",
+        "rp_prompt_ip": "🌐 **Введіть назву або IP сервера**",
         "rp_server_added": "✅ Сервер додано!",
         "rp_no_servers": "📭 Список порожній.",
         "rp_select_to_del": "🗑 Виберіть для видалення:",
@@ -814,7 +814,7 @@ async def rp_process_map_search(message: Message, state: FSMContext):
 
     loading_msg = await message.answer(t(user_id, "rp_map_loading"))
 
-    map_image_bytes, map_title = await fetch_rust_map_image(server_query)
+    map_image_bytes, map_title = await fetch_rust_map_via_battlemetrics(server_query)
 
     try:
         await loading_msg.delete()
@@ -826,7 +826,7 @@ async def rp_process_map_search(message: Message, state: FSMContext):
         keyboard = [[InlineKeyboardButton(text=t(user_id, "back_btn"), callback_data="rust_plus_menu")]]
         await message.answer_photo(
             photo=photo_file,
-            caption=f"🗺 **Карта сервера:** `{server_query}`\n📌 {map_title}",
+            caption=f"🗺 **Карта сервера:** `{map_title}`",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard),
             parse_mode="Markdown"
         )
@@ -840,12 +840,43 @@ async def rp_process_map_search(message: Message, state: FSMContext):
 
     await state.clear()
 
-async def fetch_rust_map_image(server_query: str) -> tuple:
+async def fetch_rust_map_via_battlemetrics(server_query: str) -> tuple:
+    """
+    Интеграция с официальным BattleMetrics API (и запасным веб-парсингом) 
+    для точного поиска серверов, IP/названий и получения карт.
+    """
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
     }
-    try:
-        async with aiohttp.ClientSession() as session:
+    if BM_API_KEY:
+        headers["Authorization"] = f"Bearer {BM_API_KEY}"
+
+    async with aiohttp.ClientSession() as session:
+        try:
+            # 1. Попытка запроса через официальный JSON:API BattleMetrics
+            bm_api_url = f"https://api.battlemetrics.com/servers?filter[game]=rust&filter[search]={quote(server_query)}&page[size]=1"
+            async with session.get(bm_api_url, headers=headers) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    servers_data = data.get("data", [])
+                    if servers_data:
+                        srv = servers_data[0]
+                        attributes = srv.get("attributes", {})
+                        server_name = attributes.get("name", server_query)
+                        details = attributes.get("details", {})
+                        
+                        # Проверяем наличие прямой ссылки на карту или RustMaps в деталях сервера BattleMetrics
+                        map_url = details.get("rustMapUrl") or details.get("mapUrl")
+                        if not map_url:
+                            # Проверяем описание/детали
+                            pass
+                        
+                        if map_url:
+                            async with session.get(map_url, headers=headers) as img_resp:
+                                if img_resp.status == 200:
+                                    return await img_resp.read(), server_name
+
+            # 2. Поиск через веб-интерфейс BattleMetrics и RustMaps (Fallback)
             bm_search_url = f"https://www.battlemetrics.com/servers/rust?q={quote(server_query)}"
             async with session.get(bm_search_url, headers=headers) as resp:
                 if resp.status == 200:
@@ -856,7 +887,10 @@ async def fetch_rust_map_image(server_query: str) -> tuple:
                         async with session.get(server_profile_url, headers=headers) as profile_resp:
                             if profile_resp.status == 200:
                                 profile_html = await profile_resp.text()
-                                # Поиск ссылки на картинку карты или RustMaps в профиле сервера BattleMetrics
+                                
+                                title_match = re.search(r'<title>(.*?)</title>', profile_html)
+                                s_title = title_match.group(1).split('|')[0].strip() if title_match else server_query
+
                                 map_img_match = re.search(r'src="(https://[^"]+rustmaps\.com/img/[^"]+)"', profile_html)
                                 if not map_img_match:
                                     map_img_match = re.search(r'href="(https://[^"]*rustmaps\.com/map/[^"]+)"', profile_html)
@@ -864,14 +898,13 @@ async def fetch_rust_map_image(server_query: str) -> tuple:
                                 if map_img_match:
                                     map_url = map_img_match.group(1)
                                     if "rustmaps.com/map/" in map_url:
-                                        # Если это страница карты, конвертируем в прямую ссылку на картинку или пробуем скачать превью
                                         map_url = map_url.replace("/map/", "/img/") + ".png"
                                     
                                     async with session.get(map_url, headers=headers) as img_resp:
                                         if img_resp.status == 200:
-                                            return await img_resp.read(), server_query
+                                            return await img_resp.read(), s_title
 
-            # Запасной вариант: прямой поиск через rustmaps превью если есть совпадение
+            # 3. Прямой поиск превью на RustMaps
             rustmaps_search = f"https://rustmaps.com/search?query={quote(server_query)}"
             async with session.get(rustmaps_search, headers=headers) as resp2:
                 if resp2.status == 200:
@@ -882,8 +915,8 @@ async def fetch_rust_map_image(server_query: str) -> tuple:
                             if img_resp2.status == 200:
                                 return await img_resp2.read(), server_query
 
-    except Exception as e:
-        logging.error(f"Error fetching map image: {e}")
+        except Exception as e:
+            logging.error(f"Error fetching map image via BattleMetrics API: {e}")
 
     return None, None
 
@@ -953,7 +986,7 @@ async def rp_view_server_details(callback: CallbackQuery):
     user_id = callback.from_user.id
     srv_name = callback.data.replace("rp_view_srv_", "")
     
-    await callback.answer("⏳ Загрузка информации о сервере...")
+    await callback.answer("⏳ Загрузка информации через BattleMetrics...")
     info = await fetch_server_details_by_name(srv_name)
     
     history_snippet = info['history'][:600]
@@ -964,7 +997,7 @@ async def rp_view_server_details(callback: CallbackQuery):
     
     text = (
         f"🟢 **Сервер:** `{server_title}`\n\n"
-        f"📋 **Последняя активность / История:**\n"
+        f"📋 **Последняя активность / История (BattleMetrics):**\n"
         f"{code_block}"
     )
     keyboard = [[InlineKeyboardButton(text=t(user_id, "back_btn"), callback_data="rust_plus_menu")]]
@@ -974,9 +1007,36 @@ async def fetch_server_details_by_name(server_name: str):
     async with aiohttp.ClientSession() as session:
         bm_history_text = "History not found."
         headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
         }
+        if BM_API_KEY:
+            headers["Authorization"] = f"Bearer {BM_API_KEY}"
+
         try:
+            # Используем BattleMetrics API для поиска сервера
+            bm_api_url = f"https://api.battlemetrics.com/servers?filter[game]=rust&filter[search]={quote(server_name)}&page[size]=1"
+            async with session.get(bm_api_url, headers=headers) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    servers_data = data.get("data", [])
+                    if servers_data:
+                        srv = servers_data[0]
+                        attributes = srv.get("attributes", {})
+                        real_name = attributes.get("name", server_name)
+                        players = attributes.get("players", 0)
+                        max_players = attributes.get("maxPlayers", 0)
+                        status = attributes.get("status", "unknown")
+                        rank = attributes.get("rank", "N/A")
+                        
+                        bm_history_text = (
+                            f"Статус: {status.upper()}\n"
+                            f"Игроки онлайн: {players} / {max_players}\n"
+                            f"Рейтинг в BattleMetrics: #{rank}\n"
+                            f"IP: {attributes.get('ip', 'N/A')}:{attributes.get('port', 'N/A')}"
+                        )
+                        return {"server_name": real_name, "history": bm_history_text}
+
+            # Fallback на парсинг сайта BattleMetrics
             bm_search_url = f"https://www.battlemetrics.com/servers/rust?q={quote(server_name)}"
             async with session.get(bm_search_url, headers=headers) as resp:
                 if resp.status == 200:
@@ -998,7 +1058,7 @@ async def fetch_server_details_by_name(server_name: str):
                                     if extracted:
                                         bm_history_text = "\n".join(extracted)
         except Exception as e:
-            logging.error(f"BattleMetrics request error: {e}")
+            logging.error(f"BattleMetrics API request error: {e}")
 
         return {
             "server_name": server_name,
