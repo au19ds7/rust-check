@@ -87,7 +87,7 @@ LANGS = {
         "bans_msg": "🛡 **Проверка банов для `{sid}`:**\n\n• Игровых/VAC банов: не обнаружено\n• Статус: Чист",
         "track_on": "✅ Отслеживание успешно включено! Я буду присылать уведомления, когда игрок заходит или выходит из Rust.",
         "track_off": "🛑 Отслеживание остановлено.",
-        "notif_entered": "🔔 **Внимание!** Отслеживаемый игрок `{name}` зашел в Rust!",
+        "notif_entered": "🔔 **Внимание!** Отслеживаемый игрок `{name}` зашел в Rust!\n🌐 **Сервер:** `{server}`",
         "notif_left": "🔕 Игрок `{name}` вышел из Rust."
     },
     "en": {
@@ -142,7 +142,7 @@ LANGS = {
         "bans_msg": "🛡 Clean",
         "track_on": "✅ Tracking enabled!",
         "track_off": "🛑 Tracking stopped.",
-        "notif_entered": "🔔 Tracked player `{name}` joined Rust!",
+        "notif_entered": "🔔 Tracked player `{name}` joined Rust!\n🌐 **Server:** `{server}`",
         "notif_left": "🔕 Player `{name}` left Rust."
     },
     "uk": {
@@ -197,7 +197,7 @@ LANGS = {
         "bans_msg": "🛡 Чистий",
         "track_on": "✅ Увімкнено!",
         "track_off": "🛑 Зупинено.",
-        "notif_entered": "🔔 Гравець `{name}` зайшов у Rust!",
+        "notif_entered": "🔔 Гравець `{name}` зайшов у Rust!\n🌐 **Сервер:** `{server}`",
         "notif_left": "🔕 Гравець `{name}` вийшов з Rust."
     }
 }
@@ -660,7 +660,7 @@ async def show_tracked_list(callback: CallbackQuery):
 
 async def background_player_monitor():
     while True:
-        await asyncio.sleep(5)  # Интервал проверки сокращен до 5 секунд для мгновенной реакции
+        await asyncio.sleep(5)  # Интервал проверки
         if not tracked_players_list:
             continue
             
@@ -680,7 +680,6 @@ async def background_player_monitor():
                     data = await resp.json()
                     players = data.get("response", {}).get("players", [])
                     
-                    # Собираем статусы тех, кого вернул Steam API
                     found_sids = set()
                     for p in players:
                         sid = p.get("steamid")
@@ -704,7 +703,12 @@ async def background_player_monitor():
 
                                 if is_in_rust and not last_status:
                                     try:
-                                        await bot.send_message(user_id, t(user_id, "notif_entered", name=name), parse_mode="Markdown")
+                                        server_name = game_extra if game_extra else "Неизвестный сервер"
+                                        await bot.send_message(
+                                            user_id, 
+                                            t(user_id, "notif_entered", name=name, server=server_name), 
+                                            parse_mode="Markdown"
+                                        )
                                     except Exception as e:
                                         logging.error(f"Failed to send enter notification: {e}")
                                 
@@ -716,7 +720,6 @@ async def background_player_monitor():
                                 
                                 player_last_status[user_id][sid] = is_in_rust
 
-                    # Если вдруг Steam API отдал пустой ответ или игрок скрыл профиль / вышел в офлайн (API не возвращает его)
                     for user_id, user_sids in tracked_players_list.items():
                         for sid in user_sids:
                             if sid not in found_sids:
