@@ -9,7 +9,7 @@ from bs4 import BeautifulSoup
 
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.filters import Command
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, BufferedInputFile
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
@@ -55,10 +55,13 @@ LANGS = {
         "rp_tab_map": "🗺 2. Карта",
         "rp_tab_third": "⚙️ 3. Настройки / Прочее",
         "rp_online_title": "🟢 **Список серверов (Онлайн):**\n\nВыберите сервер или добавьте его по точному названию:",
-        "rp_map_title": "🗺 **Список серверов (Карта):**\n\nВыберите сервер для получения карты:",
+        "rp_map_title": "🗺 **Список серверов (Карта):**\n\nВведите IP/название сервера для поиска карты:",
         "btn_add_server": "➕ Добавить сервер",
         "btn_delete_server": "🗑 Удалить сервер",
         "rp_prompt_ip": "🌐 **Введите точное название сервера Rust**\n\nНапример: `Official Server #1`",
+        "rp_prompt_map_search": "🗺 **Введите IP или название сервера для поиска карты:**",
+        "rp_map_not_found": "❌ Не удалось найти карту для этого сервера. Проверьте правильность названия/IP.",
+        "rp_map_loading": "🗺 Ищу карту и генерирую изображение...",
         "rp_server_added": "✅ Сервер успешно добавлен в список!",
         "rp_no_servers": "📭 Список серверов пуст.",
         "rp_select_to_del": "🗑 Выберите сервер для удаления:",
@@ -112,6 +115,9 @@ LANGS = {
         "rp_tab_third": "⚙️ 3. Settings / Other",
         "rp_online_title": "🟢 **Servers List (Online):**",
         "rp_map_title": "🗺 **Servers List (Map):**",
+        "rp_prompt_map_search": "🗺 **Enter server IP or name to search map:**",
+        "rp_map_not_found": "❌ Map not found.",
+        "rp_map_loading": "🗺 Searching map...",
         "btn_add_server": "➕ Add server",
         "btn_delete_server": "🗑 Delete server",
         "rp_prompt_ip": "🌐 **Enter exact server name**",
@@ -168,6 +174,9 @@ LANGS = {
         "rp_tab_third": "⚙️ 3. Інше",
         "rp_online_title": "🟢 **Список серверів (Онлайн):**",
         "rp_map_title": "🗺 **Список серверів (Карта):**",
+        "rp_prompt_map_search": "🗺 **Введіть IP або назву сервера для пошуку карти:**",
+        "rp_map_not_found": "❌ Карту не знайдено.",
+        "rp_map_loading": "🗺 Шукаю карту...",
         "btn_add_server": "➕ Додати сервер",
         "btn_delete_server": "🗑 Видалити",
         "rp_prompt_ip": "🌐 **Введіть назву сервера**",
@@ -784,21 +793,99 @@ async def rp_tab_online(callback: CallbackQuery):
     await callback.answer()
 
 @router.callback_query(F.data == "rp_tab_map_click")
-async def rp_tab_map(callback: CallbackQuery):
+async def rp_tab_map(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
-    servers = user_servers.get(user_id, [])
-    
-    keyboard = []
-    for srv in servers:
-        keyboard.append([InlineKeyboardButton(text=f"🗺 {srv}", callback_data=f"rp_map_srv_{srv}")])
-    keyboard.append([InlineKeyboardButton(text=t(user_id, "back_btn"), callback_data="rust_plus_menu")])
-    
-    text = t(user_id, "rp_map_title")
-    if not servers:
-        text += f"\n\n{t(user_id, 'rp_no_servers')}"
-        
-    await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard), parse_mode="Markdown")
+    await callback.message.edit_text(
+        t(user_id, "rp_prompt_map_search"),
+        reply_markup=back_keyboard(user_id),
+        parse_mode="Markdown"
+    )
+    await state.set_state(RustPlusFlowState.waiting_for_map_input)
     await callback.answer()
+
+@router.message(RustPlusFlowState.waiting_for_map_input)
+async def rp_process_map_search(message: Message, state: FSMContext):
+    user_id = message.from_user.id
+    server_query = message.text.strip()
+    try:
+        await message.delete()
+    except Exception:
+        pass
+
+    loading_msg = await message.answer(t(user_id, "rp_map_loading"))
+
+    map_image_bytes, map_title = await fetch_rust_map_image(server_query)
+
+    try:
+        await loading_msg.delete()
+    except Exception:
+        pass
+
+    if map_image_bytes:
+        photo_file = BufferedInputFile(map_image_bytes, filename="rust_map.png")
+        keyboard = [[InlineKeyboardButton(text=t(user_id, "back_btn"), callback_data="rust_plus_menu")]]
+        await message.answer_photo(
+            photo=photo_file,
+            caption=f"🗺 **Карта сервера:** `{server_query}`\n📌 {map_title}",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard),
+            parse_mode="Markdown"
+        )
+    else:
+        keyboard = [[InlineKeyboardButton(text=t(user_id, "back_btn"), callback_data="rust_plus_menu")]]
+        await message.answer(
+            t(user_id, "rp_map_not_found"),
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard),
+            parse_mode="Markdown"
+        )
+
+    await state.clear()
+
+async def fetch_rust_map_image(server_query: str) -> tuple:
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
+    try:
+        async with aiohttp.ClientSession() as session:
+            bm_search_url = f"https://www.battlemetrics.com/servers/rust?q={quote(server_query)}"
+            async with session.get(bm_search_url, headers=headers) as resp:
+                if resp.status == 200:
+                    bm_html = await resp.text()
+                    server_link_match = re.search(r'href="(/servers/rust/\d+-[^"]+)"', bm_html)
+                    if server_link_match:
+                        server_profile_url = f"https://www.battlemetrics.com{server_link_match.group(1)}"
+                        async with session.get(server_profile_url, headers=headers) as profile_resp:
+                            if profile_resp.status == 200:
+                                profile_html = await profile_resp.text()
+                                # Поиск ссылки на картинку карты или RustMaps в профиле сервера BattleMetrics
+                                map_img_match = re.search(r'src="(https://[^"]+rustmaps\.com/img/[^"]+)"', profile_html)
+                                if not map_img_match:
+                                    map_img_match = re.search(r'href="(https://[^"]*rustmaps\.com/map/[^"]+)"', profile_html)
+                                
+                                if map_img_match:
+                                    map_url = map_img_match.group(1)
+                                    if "rustmaps.com/map/" in map_url:
+                                        # Если это страница карты, конвертируем в прямую ссылку на картинку или пробуем скачать превью
+                                        map_url = map_url.replace("/map/", "/img/") + ".png"
+                                    
+                                    async with session.get(map_url, headers=headers) as img_resp:
+                                        if img_resp.status == 200:
+                                            return await img_resp.read(), server_query
+
+            # Запасной вариант: прямой поиск через rustmaps превью если есть совпадение
+            rustmaps_search = f"https://rustmaps.com/search?query={quote(server_query)}"
+            async with session.get(rustmaps_search, headers=headers) as resp2:
+                if resp2.status == 200:
+                    rm_html = await resp2.text()
+                    img_match = re.search(r'src="(https://assets\.rustmaps\.com/maps/[^"]+\.jpg)"', rm_html)
+                    if img_match:
+                        async with session.get(img_match.group(1), headers=headers) as img_resp2:
+                            if img_resp2.status == 200:
+                                return await img_resp2.read(), server_query
+
+    except Exception as e:
+        logging.error(f"Error fetching map image: {e}")
+
+    return None, None
 
 @router.callback_query(F.data == "rp_tab_third_click")
 async def rp_tab_third(callback: CallbackQuery):
@@ -882,15 +969,6 @@ async def rp_view_server_details(callback: CallbackQuery):
     )
     keyboard = [[InlineKeyboardButton(text=t(user_id, "back_btn"), callback_data="rust_plus_menu")]]
     await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard), parse_mode="Markdown")
-
-@router.callback_query(F.data.startswith("rp_map_srv_"))
-async def rp_view_server_map(callback: CallbackQuery):
-    user_id = callback.from_user.id
-    srv_name = callback.data.replace("rp_map_srv_", "")
-    
-    keyboard = [[InlineKeyboardButton(text=t(user_id, "back_btn"), callback_data="rust_plus_menu")]]
-    await callback.message.edit_text(f"🗺 **Карта сервера `{srv_name}`:**\n\n(Интеграция с генератором карт загружается)", reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard), parse_mode="Markdown")
-    await callback.answer()
 
 async def fetch_server_details_by_name(server_name: str):
     async with aiohttp.ClientSession() as session:
