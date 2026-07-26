@@ -16,18 +16,20 @@ logging.basicConfig(level=logging.INFO)
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 STEAM_API_KEY = os.getenv("STEAM_API_KEY")
-BM_API_KEY = os.getenv("BATTLEMETRICS_API_KEY", "") # Необязательный токен BattleMetrics API
+BM_API_KEY = os.getenv("BATTLEMETRICS_API_KEY", "")
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 router = Router()
 
 tracked_players_list = {}     
+tracked_steam_status_list = {} # Новое: отслеживание по Steam профилю (онлайн/оффлайн)
 search_cache = {}             
 last_search_message = {}      
 user_languages = {}           
 user_servers = {}             
 player_last_status = {}       
+steam_profile_last_status = {} # Новое: последний статус Steam (True - онлайн, False - оффлайн)
 
 LANGS = {
     "ru": {
@@ -40,6 +42,7 @@ LANGS = {
         "btn_rust_plus": "⚡️ Rust+",
         "btn_raid": "💥 Калькулятор рейда",
         "btn_tracked": "👁 Мои отслеживания",
+        "btn_tracked_steam": "🟢 Отслеживание Steam", # Новая кнопка
         "btn_zayats": "🐰 Заяц",
         "btn_about": "ℹ️ О боте / Язык",
         "zayats_prompt": "🐰 **Режим Заяц**\n\nОтправьте мне **Steam ID 64** или **кастомный URL/ник (буквенный)** игрока, чтобы получить ссылку на ruststats.io:",
@@ -69,8 +72,10 @@ LANGS = {
         "raid_title": "💥 **Калькулятор рейда**\n\nВведите название цели (например: `Гаражка`, `Каменный шкаф`, `Каменный дом`):",
         "raid_result": "💥 **Расчет рейда для:** `{target}`\n\n• Сатчели (Satchel): 4 шт.\n• Срывные заряды (C4): 1 шт.\n• Ракеты: 2 шт.\n• Взрывчатка: учтено.",
         "btn_calc_more": "🔄 Посчитать еще",
-        "no_tracked": "У вас нет отслеживаемых игроков.",
-        "tracked_header": "👁 **Мои отслеживания:**\n",
+        "no_tracked": "У вас нет отслеживаемых игроков в Rust.",
+        "no_tracked_steam": "У вас нет отслеживаемых Steam профилей.",
+        "tracked_header": "👁 **Мои отслеживания (Rust):**\n",
+        "tracked_steam_header": "🟢 **Мои отслеживания (Steam Онлайн/Оффлайн):**\n",
         "search_id_prompt": "Отправьте мне **Steam ID 64**, ссылку или ник профиля:",
         "search_nick_prompt": "Введите **никнейм** игрока для поиска с пагинацией:",
         "search_not_found": "❌ Игрок не найден. Попробуйте еще раз:",
@@ -83,15 +88,21 @@ LANGS = {
         "not_in_rust": "⚪️ В сети, но **не играет в Rust** (игра: {game})",
         "stats_block": "📊 Активность в Rust за неделю: {hours} ч.\n🌐 Информация о серверах обновлена",
         "profile_view": "👤 **Игрок:** {name}\n📌 **Статус:** {status}\n⏳ **В Rust (всего):** {total_hours} ч.\n⏳ **За последнюю неделю:** {two_weeks_hours} ч.\n🆔 **Steam ID:** `{sid}`\n\n🔗 [Профиль Steam]({link}) | [BattleMetrics]({bm_link}) | [RustStats]({ruststats_link})",
-        "btn_track": "🔔 Отслеживать игрока",
-        "btn_stop_track": "🛑 Прекратить отслеживание",
+        "btn_track": "🔔 Отслеживать в Rust",
+        "btn_stop_track": "🛑 Прекратить отслеживание (Rust)",
+        "btn_track_steam": "🟢 Отслеживать Steam (Онлайн/Оффлайн)", # Новая кнопка
+        "btn_stop_track_steam": "🛑 Прекратить отслеживание Steam", # Новая кнопка
         "btn_check_bans": "🛡 Проверить баны",
         "bans_msg": "🛡 **Проверка банов для `{sid}`:**\n\n• Игровых/VAC банов: не обнаружено\n• Статус: Чист",
-        "track_on": "✅ Отслеживание успешно включено! Я буду присылать уведомления, когда игрок заходит или выходит из Rust.",
-        "track_off": "🛑 Отслеживание остановлено.",
+        "track_on": "✅ Отслеживание Rust успешно включено!",
+        "track_off": "🛑 Отслеживание Rust остановлено.",
+        "track_steam_on": "✅ Отслеживание Steam профиля включено!",
+        "track_steam_off": "🛑 Отслеживание Steam профиля остановлено.",
         "notif_entered": "🔔 **Внимание!** Отслеживаемый игрок `{name}` зашел в Rust!",
         "notif_server": "🌐 **Игрок зашел на сервер:** `{server}`",
-        "notif_left": "🔕 Игрок `{name}` вышел из Rust."
+        "notif_left": "🔕 Игрок `{name}` вышел из Rust.",
+        "notif_steam_online": "🟢 **Steam:** Игрок `{name}` зашел в сеть Steam!",
+        "notif_steam_offline": "🔴 **Steam:** Игрок `{name}` вышел из сети (оффлайн)."
     },
     "en": {
         "main_menu": "👋 **Bot Main Menu:**\n\nSelect a section using the buttons below:",
@@ -103,6 +114,7 @@ LANGS = {
         "btn_rust_plus": "⚡️ Rust+",
         "btn_raid": "💥 Raid Calculator",
         "btn_tracked": "👁 My Tracked Players",
+        "btn_tracked_steam": "🟢 Steam Tracking",
         "btn_zayats": "🐰 Zayats",
         "btn_about": "ℹ️ About Bot / Language",
         "zayats_prompt": "🐰 **Zayats Mode**\n\nSend me Steam ID 64:",
@@ -128,8 +140,10 @@ LANGS = {
         "raid_title": "💥 **Raid Calculator**",
         "raid_result": "💥 **Raid calculation for:** `{target}`",
         "btn_calc_more": "🔄 Calculate another",
-        "no_tracked": "You have no tracked players.",
+        "no_tracked": "You have no tracked Rust players.",
+        "no_tracked_steam": "You have no tracked Steam profiles.",
         "tracked_header": "👁 **My Tracked Players:**\n",
+        "tracked_steam_header": "🟢 **Steam Tracking List:**\n",
         "search_id_prompt": "Send me **Steam ID 64** or profile link:",
         "search_nick_prompt": "Enter player **nickname**:",
         "search_not_found": "❌ Player not found.",
@@ -142,15 +156,21 @@ LANGS = {
         "not_in_rust": "⚪️ Online, but not playing Rust",
         "stats_block": "📊 Playtime info updated",
         "profile_view": "👤 **Player:** {name}\n📌 **Status:** {status}\n⏳ **Rust Hours:** {total_hours}h (2 weeks: {two_weeks_hours}h)\n🆔 **Steam ID:** `{sid}`\n\n🔗 [Steam]({link}) | [BattleMetrics]({bm_link}) | [RustStats]({ruststats_link})",
-        "btn_track": "🔔 Track",
-        "btn_stop_track": "🛑 Stop",
+        "btn_track": "🔔 Track Rust",
+        "btn_stop_track": "🛑 Stop Rust Track",
+        "btn_track_steam": "🟢 Track Steam Status",
+        "btn_stop_track_steam": "🛑 Stop Steam Track",
         "btn_check_bans": "🛡 Check Bans",
         "bans_msg": "🛡 Clean",
         "track_on": "✅ Tracking enabled!",
         "track_off": "🛑 Tracking stopped.",
+        "track_steam_on": "✅ Steam tracking enabled!",
+        "track_steam_off": "🛑 Steam tracking stopped.",
         "notif_entered": "🔔 Tracked player `{name}` joined Rust!",
         "notif_server": "🌐 **Player joined server:** `{server}`",
-        "notif_left": "🔕 Player `{name}` left Rust."
+        "notif_left": "🔕 Player `{name}` left Rust.",
+        "notif_steam_online": "🟢 **Steam:** Player `{name}` came online!",
+        "notif_steam_offline": "🔴 **Steam:** Player `{name}` went offline."
     },
     "uk": {
         "main_menu": "👋 **Головне меню бота:**\n\nВиберіть потрібний розділ:",
@@ -161,7 +181,8 @@ LANGS = {
         "btn_search_nick": "🔍 Нікнейм",
         "btn_rust_plus": "⚡️ Rust+",
         "btn_raid": "💥 Рейд",
-        "btn_tracked": "👁 Відстеження",
+        "btn_tracked": "👁 Відстеження (Rust)",
+        "btn_tracked_steam": "🟢 Відстеження Steam",
         "btn_zayats": "🐰 Заєць",
         "btn_about": "ℹ️ Про бота / Мова",
         "zayats_prompt": "🐰 **Режим Заєць**\n\nНадішліть Steam ID або нікнейм:",
@@ -187,8 +208,10 @@ LANGS = {
         "raid_title": "💥 **Калькулятор рейду**",
         "raid_result": "💥 **Розрахунок:** `{target}`",
         "btn_calc_more": "🔄 Ще",
-        "no_tracked": "Немає відстежень.",
-        "tracked_header": "👁 **Відстеження:**\n",
+        "no_tracked": "Немає відстежень Rust.",
+        "no_tracked_steam": "Немає відстежень Steam.",
+        "tracked_header": "👁 **Відстеження (Rust):**\n",
+        "tracked_steam_header": "🟢 **Відстеження Steam:**\n",
         "search_id_prompt": "Надішліть Steam ID:",
         "search_nick_prompt": "Введіть нік:",
         "search_not_found": "❌ Не знайдено.",
@@ -201,15 +224,21 @@ LANGS = {
         "not_in_rust": "⚪️ Не в Rust",
         "stats_block": "📊 Актуально",
         "profile_view": "👤 **Гравець:** {name}\n📌 **Статус:** {status}\n⏳ **Годин у Rust:** {total_hours} год (за 2 тижні: {two_weeks_hours} год)\n🆔 **Steam ID:** `{sid}`\n\n🔗 [Steam]({link}) | [BattleMetrics]({bm_link}) | [RustStats]({ruststats_link})",
-        "btn_track": "🔔 Стежити",
-        "btn_stop_track": "🛑 Зупинити",
+        "btn_track": "🔔 Стежити (Rust)",
+        "btn_stop_track": "🛑 Зупинити (Rust)",
+        "btn_track_steam": "🟢 Стежити Steam (Онлайн/Оффлайн)",
+        "btn_stop_track_steam": "🛑 Зупинити Steam",
         "btn_check_bans": "🛡 Бани",
         "bans_msg": "🛡 Чистий",
-        "track_on": "✅ Увімкнено!",
+        "track_on": "✅ Відстеження Rust увімкнено!",
         "track_off": "🛑 Зупинено.",
+        "track_steam_on": "✅ Steam відстеження увімкнено!",
+        "track_steam_off": "🛑 Steam зупинено.",
         "notif_entered": "🔔 Гравець `{name}` зайшов у Rust!",
         "notif_server": "🌐 **Гравець зайшов на сервер:** `{server}`",
-        "notif_left": "🔕 Гравець `{name}` вийшов з Rust."
+        "notif_left": "🔕 Гравець `{name}` вийшов з Rust.",
+        "notif_steam_online": "🟢 **Steam:** Гравець `{name}` в мережі!",
+        "notif_steam_offline": "🔴 **Steam:** Гравець `{name}` вийшов (оффлайн)."
     }
 }
 
@@ -245,7 +274,10 @@ def main_keyboard(user_id):
         ],
         [InlineKeyboardButton(text=t(user_id, "btn_rust_plus"), callback_data="rust_plus_menu")],
         [InlineKeyboardButton(text=t(user_id, "btn_raid"), callback_data="raid_calc_start")],
-        [InlineKeyboardButton(text=t(user_id, "btn_tracked"), callback_data="show_tracked_list")],
+        [
+            InlineKeyboardButton(text=t(user_id, "btn_tracked"), callback_data="show_tracked_list"),
+            InlineKeyboardButton(text=t(user_id, "btn_tracked_steam"), callback_data="show_tracked_steam_list") # Добавлено в главное меню
+        ],
         [InlineKeyboardButton(text=t(user_id, "btn_zayats"), callback_data="zayats_menu_start")],
         [InlineKeyboardButton(text=t(user_id, "btn_about"), callback_data="about_bot")]
     ]
@@ -261,14 +293,22 @@ def back_keyboard(user_id):
         [InlineKeyboardButton(text=t(user_id, "back_btn"), callback_data="go_home")]
     ])
 
-def result_keyboard(user_id, steam_id, is_tracked=False):
+def result_keyboard(user_id, steam_id, is_tracked=False, is_tracked_steam=False):
+    # Кнопки отслеживания Rust
     if is_tracked:
         track_btn = InlineKeyboardButton(text=t(user_id, "btn_stop_track"), callback_data=f"stop_track_{steam_id}")
     else:
         track_btn = InlineKeyboardButton(text=t(user_id, "btn_track"), callback_data=f"start_track_{steam_id}")
         
+    # Новые кнопки отслеживания Steam (Онлайн/Оффлайн)
+    if is_tracked_steam:
+        track_steam_btn = InlineKeyboardButton(text=t(user_id, "btn_stop_track_steam"), callback_data=f"stop_track_steam_{steam_id}")
+    else:
+        track_steam_btn = InlineKeyboardButton(text=t(user_id, "btn_track_steam"), callback_data=f"start_track_steam_{steam_id}")
+
     return InlineKeyboardMarkup(inline_keyboard=[
         [track_btn],
+        [track_steam_btn],
         [InlineKeyboardButton(text=t(user_id, "btn_check_bans"), callback_data=f"check_bans_{steam_id}")],
         [InlineKeyboardButton(text=t(user_id, "back_btn"), callback_data="go_home")]
     ])
@@ -450,6 +490,7 @@ async def show_player_profile_by_id(user_id: int, steam_id: str, msg_id: int, st
             ruststats_link = f"https://ruststats.io/profile/{steam_id}"
 
             is_tracked = user_id in tracked_players_list and steam_id in tracked_players_list[user_id]
+            is_tracked_steam = user_id in tracked_steam_status_list and steam_id in tracked_steam_status_list[user_id]
             
             text = t(
                 user_id, "profile_view", 
@@ -469,7 +510,7 @@ async def show_player_profile_by_id(user_id: int, steam_id: str, msg_id: int, st
                         text, 
                         chat_id=user_id, 
                         message_id=msg_id, 
-                        reply_markup=result_keyboard(user_id, steam_id, is_tracked), 
+                        reply_markup=result_keyboard(user_id, steam_id, is_tracked, is_tracked_steam), 
                         parse_mode="Markdown", 
                         disable_web_page_preview=True
                     )
@@ -477,7 +518,7 @@ async def show_player_profile_by_id(user_id: int, steam_id: str, msg_id: int, st
                     sent = await bot.send_message(
                         user_id, 
                         text, 
-                        reply_markup=result_keyboard(user_id, steam_id, is_tracked), 
+                        reply_markup=result_keyboard(user_id, steam_id, is_tracked, is_tracked_steam), 
                         parse_mode="Markdown", 
                         disable_web_page_preview=True
                     )
@@ -605,6 +646,7 @@ async def check_bans_handler(callback: CallbackQuery):
                 
     await callback.answer(msg, show_alert=True)
 
+# Управление отслеживанием в Rust
 @router.callback_query(F.data.startswith("start_track_"))
 async def start_track_player(callback: CallbackQuery):
     user_id = callback.from_user.id
@@ -632,9 +674,10 @@ async def start_track_player(callback: CallbackQuery):
     except Exception as e:
         logging.error(f"Error initializing track status: {e}")
 
+    is_tracked_steam = user_id in tracked_steam_status_list and steam_id in tracked_steam_status_list[user_id]
     await callback.answer(t(user_id, "track_on"), show_alert=True)
     try:
-        await callback.message.edit_reply_markup(reply_markup=result_keyboard(user_id, steam_id, is_tracked=True))
+        await callback.message.edit_reply_markup(reply_markup=result_keyboard(user_id, steam_id, is_tracked=True, is_tracked_steam=is_tracked_steam))
     except Exception:
         pass
 
@@ -649,9 +692,62 @@ async def stop_track_player(callback: CallbackQuery):
     if user_id in player_last_status:
         player_last_status[user_id].pop(steam_id, None)
         
+    is_tracked_steam = user_id in tracked_steam_status_list and steam_id in tracked_steam_status_list[user_id]
     await callback.answer(t(user_id, "track_off"), show_alert=True)
     try:
-        await callback.message.edit_reply_markup(reply_markup=result_keyboard(user_id, steam_id, is_tracked=False))
+        await callback.message.edit_reply_markup(reply_markup=result_keyboard(user_id, steam_id, is_tracked=False, is_tracked_steam=is_tracked_steam))
+    except Exception:
+        pass
+
+# Управление отслеживанием Стим Профиля (Онлайн/Оффлайн)
+@router.callback_query(F.data.startswith("start_track_steam_"))
+async def start_track_steam(callback: CallbackQuery):
+    user_id = callback.from_user.id
+    steam_id = callback.data.split("_")[-1]
+    
+    if user_id not in tracked_steam_status_list:
+        tracked_steam_status_list[user_id] = set()
+    tracked_steam_status_list[user_id].add(steam_id)
+    
+    url = f"https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v0002/?key={STEAM_API_KEY}&steamids={steam_id}"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url) as resp:
+                data = await resp.json()
+                players = data.get("response", {}).get("players", [])
+                if players:
+                    p = players[0]
+                    state_val = p.get("personastate", 0)
+                    is_online = (state_val > 0)
+                    
+                    if user_id not in steam_profile_last_status:
+                        steam_profile_last_status[user_id] = {}
+                    steam_profile_last_status[user_id][steam_id] = is_online
+    except Exception as e:
+        logging.error(f"Error initializing steam track status: {e}")
+
+    is_tracked = user_id in tracked_players_list and steam_id in tracked_players_list[user_id]
+    await callback.answer(t(user_id, "track_steam_on"), show_alert=True)
+    try:
+        await callback.message.edit_reply_markup(reply_markup=result_keyboard(user_id, steam_id, is_tracked=is_tracked, is_tracked_steam=True))
+    except Exception:
+        pass
+
+@router.callback_query(F.data.startswith("stop_track_steam_"))
+async def stop_track_steam(callback: CallbackQuery):
+    user_id = callback.from_user.id
+    steam_id = callback.data.split("_")[-1]
+    
+    if user_id in tracked_steam_status_list:
+        tracked_steam_status_list[user_id].discard(steam_id)
+        
+    if user_id in steam_profile_last_status:
+        steam_profile_last_status[user_id].pop(steam_id, None)
+        
+    is_tracked = user_id in tracked_players_list and steam_id in tracked_players_list[user_id]
+    await callback.answer(t(user_id, "track_steam_off"), show_alert=True)
+    try:
+        await callback.message.edit_reply_markup(reply_markup=result_keyboard(user_id, steam_id, is_tracked=is_tracked, is_tracked_steam=False))
     except Exception:
         pass
 
@@ -673,14 +769,35 @@ async def show_tracked_list(callback: CallbackQuery):
     await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard), parse_mode="Markdown")
     await callback.answer()
 
+# Отдельная вкладка для отслеживаемых Steam профилей из главного меню
+@router.callback_query(F.data == "show_tracked_steam_list")
+async def show_tracked_steam_list(callback: CallbackQuery):
+    user_id = callback.from_user.id
+    tracked = tracked_steam_status_list.get(user_id, set())
+    
+    if not tracked:
+        await callback.answer(t(user_id, "no_tracked_steam"), show_alert=True)
+        return
+        
+    text = t(user_id, "tracked_steam_header")
+    keyboard = []
+    for sid in tracked:
+        keyboard.append([InlineKeyboardButton(text=f"Steam ID: {sid}", callback_data=f"sel_id_{sid}")])
+    keyboard.append([InlineKeyboardButton(text=t(user_id, "back_btn"), callback_data="go_home")])
+    
+    await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard), parse_mode="Markdown")
+    await callback.answer()
+
+# Фоновый мониторинг (Rust игры и Steam онлайн/оффлайн статус)
 async def background_player_monitor():
     while True:
         await asyncio.sleep(5)
-        if not tracked_players_list:
-            continue
-            
+        
+        # Собираем все уникальные Steam ID для мониторинга Rust и Steam
         all_sids = set()
         for s_set in tracked_players_list.values():
+            all_sids.update(s_set)
+        for s_set in tracked_steam_status_list.values():
             all_sids.update(s_set)
             
         if not all_sids:
@@ -702,9 +819,12 @@ async def background_player_monitor():
                         name = p.get("personaname", "Player")
                         gameid = str(p.get("gameid", ""))
                         game_extra = p.get("gameextrainfo", "")
+                        state_val = p.get("personastate", 0)
                         
                         is_in_rust = (gameid == "252490" or "Rust" in game_extra)
+                        is_steam_online = (state_val > 0)
                         
+                        # 1. Проверка для Rust отслеживания
                         for user_id, user_sids in tracked_players_list.items():
                             if sid in user_sids:
                                 if user_id not in player_last_status:
@@ -723,7 +843,6 @@ async def background_player_monitor():
                                             t(user_id, "notif_entered", name=name), 
                                             parse_mode="Markdown"
                                         )
-                                        
                                         if game_extra and game_extra.strip().lower() != "rust":
                                             await asyncio.sleep(0.3)
                                             await bot.send_message(
@@ -742,15 +861,39 @@ async def background_player_monitor():
                                 
                                 player_last_status[user_id][sid] = is_in_rust
 
-                    for user_id, user_sids in tracked_players_list.items():
-                        for sid in user_sids:
-                            if sid not in found_sids:
-                                if user_id in player_last_status and player_last_status[user_id].get(sid) == True:
-                                    player_last_status[user_id][sid] = False
+                        # 2. Проверка для Steam Онлайн/Оффлайн отслеживания
+                        for user_id, user_sids in tracked_steam_status_list.items():
+                            if sid in user_sids:
+                                if user_id not in steam_profile_last_status:
+                                    steam_profile_last_status[user_id] = {}
+                                
+                                last_steam_status = steam_profile_last_status[user_id].get(sid)
+                                
+                                if last_steam_status is None:
+                                    steam_profile_last_status[user_id][sid] = is_steam_online
+                                    continue
+
+                                if is_steam_online and not last_steam_status:
                                     try:
-                                        await bot.send_message(user_id, t(user_id, "notif_left", name=f"ID {sid}"), parse_mode="Markdown")
+                                        await bot.send_message(
+                                            user_id,
+                                            t(user_id, "notif_steam_online", name=name),
+                                            parse_mode="Markdown"
+                                        )
                                     except Exception as e:
-                                        logging.error(f"Failed to send forced leave notification: {e}")
+                                        logging.error(f"Failed to send steam online notification: {e}")
+                                
+                                elif not is_steam_online and last_steam_status:
+                                    try:
+                                        await bot.send_message(
+                                            user_id,
+                                            t(user_id, "notif_steam_offline", name=name),
+                                            parse_mode="Markdown"
+                                        )
+                                    except Exception as e:
+                                        logging.error(f"Failed to send steam offline notification: {e}")
+                                        
+                                steam_profile_last_status[user_id][sid] = is_steam_online
 
         except Exception as e:
             logging.error(f"Background monitor error: {e}")
@@ -841,9 +984,6 @@ async def rp_process_map_search(message: Message, state: FSMContext):
     await state.clear()
 
 async def fetch_rust_map_via_battlemetrics(server_query: str) -> tuple:
-    """
-    Надежный поиск сервера и карты через официальный BattleMetrics API v4 с запасными вариантами.
-    """
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
         "Accept": "application/json"
@@ -853,7 +993,6 @@ async def fetch_rust_map_via_battlemetrics(server_query: str) -> tuple:
 
     async with aiohttp.ClientSession() as session:
         try:
-            # 1. Официальный эндпоинт BattleMetrics API v4
             bm_api_url = f"https://api.battlemetrics.com/servers?filter[game]=rust&filter[search]={quote(server_query)}&page[size]=1"
             async with session.get(bm_api_url, headers=headers) as resp:
                 if resp.status == 200:
@@ -877,7 +1016,6 @@ async def fetch_rust_map_via_battlemetrics(server_query: str) -> tuple:
                                 if img_resp.status == 200:
                                     return await img_resp.read(), server_name
 
-            # 2. Прямой поиск превью на RustMaps, если через BattleMetrics не удалось взять картинку
             rustmaps_search = f"https://rustmaps.com/search?query={quote(server_query)}"
             async with session.get(rustmaps_search, headers=headers) as resp2:
                 if resp2.status == 200:
@@ -977,9 +1115,6 @@ async def rp_view_server_details(callback: CallbackQuery):
     await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard), parse_mode="Markdown")
 
 async def fetch_server_details_by_name(server_name: str):
-    """
-    Получение информации об онлайне через официальный API BattleMetrics.
-    """
     async with aiohttp.ClientSession() as session:
         bm_history_text = "Информация о сервере недоступна."
         headers = {
