@@ -294,17 +294,30 @@ def back_keyboard(user_id):
         [InlineKeyboardButton(text=t(user_id, "back_btn"), callback_data="go_home")]
     ])
 
-def result_keyboard(user_id, steam_id, is_tracked=False):
+def result_keyboard(user_id, steam_id, is_tracked=False, is_steam_tracked=False, from_steam_menu=False):
     if is_tracked:
         track_btn = InlineKeyboardButton(text=t(user_id, "btn_stop_track"), callback_data=f"stop_track_{steam_id}")
     else:
         track_btn = InlineKeyboardButton(text=t(user_id, "btn_track"), callback_data=f"start_track_{steam_id}")
 
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [track_btn],
-        [InlineKeyboardButton(text=t(user_id, "btn_check_bans"), callback_data=f"check_bans_{steam_id}")],
-        [InlineKeyboardButton(text=t(user_id, "back_btn"), callback_data="go_home")]
-    ])
+    keyboard = [
+        [track_btn]
+    ]
+
+    if from_steam_menu:
+        if is_steam_tracked:
+            keyboard.append([InlineKeyboardButton(text=t(user_id, "btn_stop_track_steam"), callback_data=f"stop_steam_track_profile_{steam_id}")])
+        else:
+            keyboard.append([InlineKeyboardButton(text=t(user_id, "btn_track_steam"), callback_data=f"start_steam_track_profile_{steam_id}")])
+
+    keyboard.append([InlineKeyboardButton(text=t(user_id, "btn_check_bans"), callback_data=f"check_bans_{steam_id}")])
+    
+    if from_steam_menu:
+        keyboard.append([InlineKeyboardButton(text=t(user_id, "back_btn"), callback_data="show_tracked_steam_list")])
+    else:
+        keyboard.append([InlineKeyboardButton(text=t(user_id, "back_btn"), callback_data="go_home")])
+
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 @router.message(Command("start"))
 async def cmd_start(message: Message, state: FSMContext):
@@ -404,7 +417,7 @@ async def process_steam_id_input(message: Message, state: FSMContext):
         except Exception:
             pass
 
-    await show_player_profile_by_id(user_id, steam_id, msg_id, state)
+    await show_player_profile_by_id(user_id, steam_id, msg_id, state, from_steam_menu=False)
 
 async def resolve_vanity_url(query: str) -> str:
     if query.isdigit() and len(query) == 17:
@@ -448,7 +461,7 @@ async def fetch_rust_playtime(steam_id: str) -> tuple:
         logging.error(f"Error fetching rust playtime: {e}")
     return total_hours, two_weeks_hours
 
-async def show_player_profile_by_id(user_id: int, steam_id: str, msg_id: int, state: FSMContext):
+async def show_player_profile_by_id(user_id: int, steam_id: str, msg_id: int, state: FSMContext, from_steam_menu: bool = False):
     url = f"https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v0002/?key={STEAM_API_KEY}&steamids={steam_id}"
     
     async with aiohttp.ClientSession() as session:
@@ -483,6 +496,7 @@ async def show_player_profile_by_id(user_id: int, steam_id: str, msg_id: int, st
             ruststats_link = f"https://ruststats.io/profile/{steam_id}"
 
             is_tracked = user_id in tracked_players_list and steam_id in tracked_players_list[user_id]
+            is_steam_tracked = user_id in tracked_steam_list and steam_id in tracked_steam_list[user_id]
             
             text = t(
                 user_id, "profile_view", 
@@ -496,13 +510,14 @@ async def show_player_profile_by_id(user_id: int, steam_id: str, msg_id: int, st
                 sid=steam_id
             )
             
+            markup = result_keyboard(user_id, steam_id, is_tracked, is_steam_tracked, from_steam_menu)
             if msg_id:
                 try:
                     await bot.edit_message_text(
                         text, 
                         chat_id=user_id, 
                         message_id=msg_id, 
-                        reply_markup=result_keyboard(user_id, steam_id, is_tracked), 
+                        reply_markup=markup, 
                         parse_mode="Markdown", 
                         disable_web_page_preview=True
                     )
@@ -510,7 +525,7 @@ async def show_player_profile_by_id(user_id: int, steam_id: str, msg_id: int, st
                     sent = await bot.send_message(
                         user_id, 
                         text, 
-                        reply_markup=result_keyboard(user_id, steam_id, is_tracked), 
+                        reply_markup=markup, 
                         parse_mode="Markdown", 
                         disable_web_page_preview=True
                     )
@@ -608,7 +623,13 @@ async def pagination_handler(callback: CallbackQuery):
 async def select_searched_id(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
     steam_id = callback.data.split("_")[-1]
-    await show_player_profile_by_id(user_id, steam_id, callback.message.message_id, state)
+    
+    from_steam_menu = callback.message.reply_markup and any(
+        any("show_tracked_steam_list" in (btn.callback_data or "") or "steam_track" in (btn.callback_data or "") for btn in row)
+        for row in callback.message.reply_markup.inline_keyboard
+    )
+    
+    await show_player_profile_by_id(user_id, steam_id, callback.message.message_id, state, from_steam_menu=from_steam_menu)
     await callback.answer()
 
 @router.callback_query(F.data.startswith("check_bans_"))
@@ -667,7 +688,10 @@ async def start_track_player(callback: CallbackQuery):
 
     await callback.answer(t(user_id, "track_on"), show_alert=True)
     try:
-        await callback.message.edit_reply_markup(reply_markup=result_keyboard(user_id, steam_id, is_tracked=True))
+        from_steam_menu = callback.message.reply_markup and any(any("show_tracked_steam_list" in (b.callback_data or "") for b in r) for r in callback.message.reply_markup.inline_keyboard)
+        is_tracked = True
+        is_steam_tracked = user_id in tracked_steam_list and steam_id in tracked_steam_list[user_id]
+        await callback.message.edit_reply_markup(reply_markup=result_keyboard(user_id, steam_id, is_tracked=is_tracked, is_steam_tracked=is_steam_tracked, from_steam_menu=from_steam_menu))
     except Exception:
         pass
 
@@ -684,7 +708,61 @@ async def stop_track_player(callback: CallbackQuery):
 
     await callback.answer(t(user_id, "track_off"), show_alert=True)
     try:
-        await callback.message.edit_reply_markup(reply_markup=result_keyboard(user_id, steam_id, is_tracked=False))
+        from_steam_menu = callback.message.reply_markup and any(any("show_tracked_steam_list" in (b.callback_data or "") for b in r) for r in callback.message.reply_markup.inline_keyboard)
+        is_tracked = False
+        is_steam_tracked = user_id in tracked_steam_list and steam_id in tracked_steam_list[user_id]
+        await callback.message.edit_reply_markup(reply_markup=result_keyboard(user_id, steam_id, is_tracked=is_tracked, is_steam_tracked=is_steam_tracked, from_steam_menu=from_steam_menu))
+    except Exception:
+        pass
+
+@router.callback_query(F.data.startswith("start_steam_track_profile_"))
+async def start_steam_track_profile(callback: CallbackQuery):
+    user_id = callback.from_user.id
+    steam_id = callback.data.split("_")[-1]
+
+    if user_id not in tracked_steam_list:
+        tracked_steam_list[user_id] = set()
+    tracked_steam_list[user_id].add(steam_id)
+
+    url = f"https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v0002/?key={STEAM_API_KEY}&steamids={steam_id}"
+    initial_status = 0
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url) as resp:
+                data = await resp.json()
+                players = data.get("response", {}).get("players", [])
+                if players:
+                    initial_status = players[0].get("personastate", 0)
+    except Exception as e:
+        logging.error(f"Error checking initial steam status: {e}")
+
+    if user_id not in steam_profile_last_status:
+        steam_profile_last_status[user_id] = {}
+    steam_profile_last_status[user_id][steam_id] = initial_status
+
+    await callback.answer(t(user_id, "track_steam_on"), show_alert=True)
+    try:
+        is_tracked = user_id in tracked_players_list and steam_id in tracked_players_list[user_id]
+        is_steam_tracked = True
+        await callback.message.edit_reply_markup(reply_markup=result_keyboard(user_id, steam_id, is_tracked=is_tracked, is_steam_tracked=is_steam_tracked, from_steam_menu=True))
+    except Exception:
+        pass
+
+@router.callback_query(F.data.startswith("stop_steam_track_profile_"))
+async def stop_steam_track_profile(callback: CallbackQuery):
+    user_id = callback.from_user.id
+    steam_id = callback.data.split("_")[-1]
+
+    if user_id in tracked_steam_list:
+        tracked_steam_list[user_id].discard(steam_id)
+    if user_id in steam_profile_last_status:
+        steam_profile_last_status[user_id].pop(steam_id, None)
+
+    await callback.answer(t(user_id, "track_steam_off"), show_alert=True)
+    try:
+        is_tracked = user_id in tracked_players_list and steam_id in tracked_players_list[user_id]
+        is_steam_tracked = False
+        await callback.message.edit_reply_markup(reply_markup=result_keyboard(user_id, steam_id, is_tracked=is_tracked, is_steam_tracked=is_steam_tracked, from_steam_menu=True))
     except Exception:
         pass
 
