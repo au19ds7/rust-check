@@ -2,7 +2,7 @@ FROM python:3.10-slim
 
 WORKDIR /app
 
-# Встановлюємо системні залежності включно з libxkbcommon0
+# Встановлюємо системні залежності для роботи браузера
 RUN apt-get update && apt-get install -y \
     wget \
     gnupg \
@@ -40,10 +40,13 @@ RUN apt-get update && apt-get install -y \
     libwayland-client0 \
     && rm -rf /var/lib/apt/lists/*
 
+# Копіюємо проєкт
 COPY . /app
 
+# Спочатку встановлюємо всі залежності з requirements.txt (там обов'язково має бути playwright)
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Тепер, коли python-пакет playwright встановлено, команда знайдеться і встановить браузер
 RUN playwright install chromium
 
 CMD ["python", "bot.py"]
