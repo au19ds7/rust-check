@@ -773,11 +773,15 @@ async def show_tracked_steam_list(callback: CallbackQuery, state: FSMContext):
     tracked = tracked_steam_list.get(user_id, set())
     
     if not tracked:
-        await callback.message.answer(
-            t(user_id, "no_tracked_steam") + "\n\nОтправьте **SteamID64** или ссылку на профиль, чтобы добавить его в отслеживание:",
+        keyboard = [
+            [InlineKeyboardButton(text="➕ Добавить профиль", callback_data="prompt_add_steam_track")],
+            [InlineKeyboardButton(text=t(user_id, "back_btn"), callback_data="go_home")]
+        ]
+        await callback.message.edit_text(
+            t(user_id, "no_tracked_steam") + "\n\nНажмите кнопку ниже, чтобы добавить профиль:",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard),
             parse_mode="Markdown"
         )
-        await state.set_state(SearchState.waiting_for_steam_track_id)
         await callback.answer()
         return
         
@@ -813,7 +817,7 @@ async def show_tracked_steam_list(callback: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data == "prompt_add_steam_track")
 async def prompt_add_steam_track(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
-    await callback.message.answer(
+    await callback.message.edit_text(
         "Отправьте **SteamID64** или ссылку на Steam профиль для отслеживания:",
         parse_mode="Markdown",
         reply_markup=stop_search_keyboard(user_id)
@@ -864,7 +868,7 @@ async def process_steam_track_id_input(message: Message, state: FSMContext):
     steam_profile_last_status[user_id][steam_id] = initial_status
 
     await state.clear()
-    await message.answer(f"✅ Профиль `{steam_id}` успешно добавлен в отслеживание Steam!", parse_mode="Markdown")
+    await message.answer(f"✅ Профиль `{steam_id}` успешно добавлен в отслеживание Steam!", parse_mode="Markdown", reply_markup=back_keyboard(user_id))
 
 async def background_player_monitor():
     while True:
