@@ -75,7 +75,7 @@ LANGS = {
         "no_tracked": "У вас нет отслеживаемых игроков в Rust.",
         "no_tracked_steam": "У вас нет отслеживаемых Steam профилей.",
         "tracked_header": "👁 **Мои отслеживания (Rust):**\n",
-        "tracked_steam_header": "🟢 **Мои отслеживания (Steam Онлайн/Оффлайн):**\n",
+        "tracked_steam_header": "🟢 **Отслеживание Steam:**\n",
         "search_id_prompt": "Отправьте мне **Steam ID 64**, ссылку или ник профиля:",
         "search_nick_prompt": "Введите **никнейм** игрока для поиска с пагинацией:",
         "search_not_found": "❌ Игрок не найден. Попробуйте еще раз:",
