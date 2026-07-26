@@ -294,20 +294,14 @@ def back_keyboard(user_id):
         [InlineKeyboardButton(text=t(user_id, "back_btn"), callback_data="go_home")]
     ])
 
-def result_keyboard(user_id, steam_id, is_tracked=False, is_tracked_steam=False):
+def result_keyboard(user_id, steam_id, is_tracked=False):
     if is_tracked:
         track_btn = InlineKeyboardButton(text=t(user_id, "btn_stop_track"), callback_data=f"stop_track_{steam_id}")
     else:
         track_btn = InlineKeyboardButton(text=t(user_id, "btn_track"), callback_data=f"start_track_{steam_id}")
-        
-    if is_tracked_steam:
-        track_steam_btn = InlineKeyboardButton(text=t(user_id, "btn_stop_track_steam"), callback_data=f"stop_track_steam_{steam_id}")
-    else:
-        track_steam_btn = InlineKeyboardButton(text=t(user_id, "btn_track_steam"), callback_data=f"start_track_steam_{steam_id}")
 
     return InlineKeyboardMarkup(inline_keyboard=[
         [track_btn],
-        [track_steam_btn],
         [InlineKeyboardButton(text=t(user_id, "btn_check_bans"), callback_data=f"check_bans_{steam_id}")],
         [InlineKeyboardButton(text=t(user_id, "back_btn"), callback_data="go_home")]
     ])
@@ -489,7 +483,6 @@ async def show_player_profile_by_id(user_id: int, steam_id: str, msg_id: int, st
             ruststats_link = f"https://ruststats.io/profile/{steam_id}"
 
             is_tracked = user_id in tracked_players_list and steam_id in tracked_players_list[user_id]
-            is_tracked_steam = user_id in tracked_steam_list and steam_id in tracked_steam_list[user_id]
             
             text = t(
                 user_id, "profile_view", 
@@ -509,7 +502,7 @@ async def show_player_profile_by_id(user_id: int, steam_id: str, msg_id: int, st
                         text, 
                         chat_id=user_id, 
                         message_id=msg_id, 
-                        reply_markup=result_keyboard(user_id, steam_id, is_tracked, is_tracked_steam), 
+                        reply_markup=result_keyboard(user_id, steam_id, is_tracked), 
                         parse_mode="Markdown", 
                         disable_web_page_preview=True
                     )
@@ -517,7 +510,7 @@ async def show_player_profile_by_id(user_id: int, steam_id: str, msg_id: int, st
                     sent = await bot.send_message(
                         user_id, 
                         text, 
-                        reply_markup=result_keyboard(user_id, steam_id, is_tracked, is_tracked_steam), 
+                        reply_markup=result_keyboard(user_id, steam_id, is_tracked), 
                         parse_mode="Markdown", 
                         disable_web_page_preview=True
                     )
@@ -672,11 +665,9 @@ async def start_track_player(callback: CallbackQuery):
     except Exception as e:
         logging.error(f"Error initializing track status: {e}")
 
-    is_tracked_steam = user_id in tracked_steam_list and steam_id in tracked_steam_list[user_id]
-
     await callback.answer(t(user_id, "track_on"), show_alert=True)
     try:
-        await callback.message.edit_reply_markup(reply_markup=result_keyboard(user_id, steam_id, is_tracked=True, is_tracked_steam=is_tracked_steam))
+        await callback.message.edit_reply_markup(reply_markup=result_keyboard(user_id, steam_id, is_tracked=True))
     except Exception:
         pass
 
@@ -691,61 +682,9 @@ async def stop_track_player(callback: CallbackQuery):
     if user_id in player_last_status:
         player_last_status[user_id].pop(steam_id, None)
 
-    is_tracked_steam = user_id in tracked_steam_list and steam_id in tracked_steam_list[user_id]
-
     await callback.answer(t(user_id, "track_off"), show_alert=True)
     try:
-        await callback.message.edit_reply_markup(reply_markup=result_keyboard(user_id, steam_id, is_tracked=False, is_tracked_steam=is_tracked_steam))
-    except Exception:
-        pass
-
-@router.callback_query(F.data.startswith("start_track_steam_"))
-async def start_track_steam(callback: CallbackQuery):
-    user_id = callback.from_user.id
-    steam_id = callback.data.split("_")[-1]
-    
-    if user_id not in tracked_steam_list:
-        tracked_steam_list[user_id] = set()
-    tracked_steam_list[user_id].add(steam_id)
-
-    url = f"https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v0002/?key={STEAM_API_KEY}&steamids={steam_id}"
-    initial_status = 0
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url) as resp:
-                data = await resp.json()
-                players = data.get("response", {}).get("players", [])
-                if players:
-                    p = players[0]
-                    initial_status = p.get("personastate", 0)
-    except Exception as e:
-        logging.error(f"Error initializing steam track status: {e}")
-
-    if user_id not in steam_profile_last_status:
-        steam_profile_last_status[user_id] = {}
-    steam_profile_last_status[user_id][steam_id] = initial_status
-
-    is_tracked = user_id in tracked_players_list and steam_id in tracked_players_list[user_id]
-    await callback.answer(t(user_id, "track_steam_on"), show_alert=True)
-    try:
-        await callback.message.edit_reply_markup(reply_markup=result_keyboard(user_id, steam_id, is_tracked=is_tracked, is_tracked_steam=True))
-    except Exception:
-        pass
-
-@router.callback_query(F.data.startswith("stop_track_steam_"))
-async def stop_track_steam(callback: CallbackQuery):
-    user_id = callback.from_user.id
-    steam_id = callback.data.split("_")[-1]
-    
-    if user_id in tracked_steam_list:
-        tracked_steam_list[user_id].discard(steam_id)
-    if user_id in steam_profile_last_status:
-        steam_profile_last_status[user_id].pop(steam_id, None)
-        
-    is_tracked = user_id in tracked_players_list and steam_id in tracked_players_list[user_id]
-    await callback.answer(t(user_id, "track_steam_off"), show_alert=True)
-    try:
-        await callback.message.edit_reply_markup(reply_markup=result_keyboard(user_id, steam_id, is_tracked=is_tracked, is_tracked_steam=False))
+        await callback.message.edit_reply_markup(reply_markup=result_keyboard(user_id, steam_id, is_tracked=False))
     except Exception:
         pass
 
