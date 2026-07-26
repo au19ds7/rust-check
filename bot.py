@@ -5,6 +5,7 @@ import asyncio
 import logging
 import re
 from urllib.parse import quote
+import aiosqlite
 
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.filters import Command
@@ -17,13 +18,13 @@ logging.basicConfig(level=logging.INFO)
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 STEAM_API_KEY = os.getenv("STEAM_API_KEY")
 BM_API_KEY = os.getenv("BATTLEMETRICS_API_KEY", "")
+DB_NAME = "bot_database.db"
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 router = Router()
 
 tracked_players_list = {}     
-tracked_steam_status_list = {} 
 search_cache = {}             
 last_search_message = {}      
 user_languages = {}           
@@ -245,6 +246,7 @@ LANGS = {
 class SearchState(StatesGroup):
     waiting_for_steam_id = State()
     waiting_for_nickname = State()
+    waiting_for_steam_track_id = State()
 
 class RustPlusFlowState(StatesGroup):
     waiting_for_ip = State()
@@ -255,6 +257,18 @@ class RaidCalculatorState(StatesGroup):
 
 class ZayatsState(StatesGroup):
     waiting_for_steam_id = State()
+
+async def init_db():
+    async with aiosqlite.connect(DB_NAME) as db:
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS tracked_steam (
+                user_id INTEGER,
+                steam_id TEXT,
+                last_status INTEGER,
+                PRIMARY KEY (user_id, steam_id)
+            )
+        """)
+        await db.commit()
 
 def get_lang(user_id: int) -> str:
     return user_languages.get(user_id, "ru")
@@ -488,7 +502,10 @@ async def show_player_profile_by_id(user_id: int, steam_id: str, msg_id: int, st
             ruststats_link = f"https://ruststats.io/profile/{steam_id}"
 
             is_tracked = user_id in tracked_players_list and steam_id in tracked_players_list[user_id]
-            is_tracked_steam = user_id in tracked_steam_status_list and steam_id in tracked_steam_status_list[user_id]
+            
+            async with aiosqlite.connect(DB_NAME) as db:
+                async with db.execute("SELECT 1 FROM tracked_steam WHERE user_id = ? AND steam_id = ?", (user_id, steam_id)) as cursor:
+                    is_tracked_steam = await cursor.fetchone() is not None
             
             text = t(
                 user_id, "profile_view", 
@@ -671,7 +688,10 @@ async def start_track_player(callback: CallbackQuery):
     except Exception as e:
         logging.error(f"Error initializing track status: {e}")
 
-    is_tracked_steam = user_id in tracked_steam_status_list and steam_id in tracked_steam_status_list[user_id]
+    async with aiosqlite.connect(DB_NAME) as db:
+        async with db.execute("SELECT 1 FROM tracked_steam WHERE user_id = ? AND steam_id = ?", (user_id, steam_id)) as cursor:
+            is_tracked_steam = await cursor.fetchone() is not None
+
     await callback.answer(t(user_id, "track_on"), show_alert=True)
     try:
         await callback.message.edit_reply_markup(reply_markup=result_keyboard(user_id, steam_id, is_tracked=True, is_tracked_steam=is_tracked_steam))
@@ -689,7 +709,10 @@ async def stop_track_player(callback: CallbackQuery):
     if user_id in player_last_status:
         player_last_status[user_id].pop(steam_id, None)
         
-    is_tracked_steam = user_id in tracked_steam_status_list and steam_id in tracked_steam_status_list[user_id]
+    async with aiosqlite.connect(DB_NAME) as db:
+        async with db.execute("SELECT 1 FROM tracked_steam WHERE user_id = ? AND steam_id = ?", (user_id, steam_id)) as cursor:
+            is_tracked_steam = await cursor.fetchone() is not None
+
     await callback.answer(t(user_id, "track_off"), show_alert=True)
     try:
         await callback.message.edit_reply_markup(reply_markup=result_keyboard(user_id, steam_id, is_tracked=False, is_tracked_steam=is_tracked_steam))
@@ -701,11 +724,8 @@ async def start_track_steam(callback: CallbackQuery):
     user_id = callback.from_user.id
     steam_id = callback.data.split("_")[-1]
     
-    if user_id not in tracked_steam_status_list:
-        tracked_steam_status_list[user_id] = set()
-    tracked_steam_status_list[user_id].add(steam_id)
-    
     url = f"https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v0002/?key={STEAM_API_KEY}&steamids={steam_id}"
+    initial_status = 0
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(url) as resp:
@@ -713,14 +733,16 @@ async def start_track_steam(callback: CallbackQuery):
                 players = data.get("response", {}).get("players", [])
                 if players:
                     p = players[0]
-                    state_val = p.get("personastate", 0)
-                    is_online = (state_val > 0)
-                    
-                    if user_id not in steam_profile_last_status:
-                        steam_profile_last_status[user_id] = {}
-                    steam_profile_last_status[user_id][steam_id] = is_online
+                    initial_status = p.get("personastate", 0)
     except Exception as e:
         logging.error(f"Error initializing steam track status: {e}")
+
+    async with aiosqlite.connect(DB_NAME) as db:
+        await db.execute(
+            "INSERT OR IGNORE INTO tracked_steam (user_id, steam_id, last_status) VALUES (?, ?, ?)",
+            (user_id, steam_id, initial_status)
+        )
+        await db.commit()
 
     is_tracked = user_id in tracked_players_list and steam_id in tracked_players_list[user_id]
     await callback.answer(t(user_id, "track_steam_on"), show_alert=True)
@@ -734,11 +756,12 @@ async def stop_track_steam(callback: CallbackQuery):
     user_id = callback.from_user.id
     steam_id = callback.data.split("_")[-1]
     
-    if user_id in tracked_steam_status_list:
-        tracked_steam_status_list[user_id].discard(steam_id)
-        
-    if user_id in steam_profile_last_status:
-        steam_profile_last_status[user_id].pop(steam_id, None)
+    async with aiosqlite.connect(DB_NAME) as db:
+        await db.execute(
+            "DELETE FROM tracked_steam WHERE user_id = ? AND steam_id = ?",
+            (user_id, steam_id)
+        )
+        await db.commit()
         
     is_tracked = user_id in tracked_players_list and steam_id in tracked_players_list[user_id]
     await callback.answer(t(user_id, "track_steam_off"), show_alert=True)
@@ -765,17 +788,24 @@ async def show_tracked_list(callback: CallbackQuery):
     await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard), parse_mode="Markdown")
     await callback.answer()
 
-# ИСПРАВЛЕНИЕ: Получаем имена отслеживаемых игроков через Steam API, чтобы выводить ники вместо чистых Steam ID
 @router.callback_query(F.data == "show_tracked_steam_list")
-async def show_tracked_steam_list(callback: CallbackQuery):
+async def show_tracked_steam_list(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
-    tracked = tracked_steam_status_list.get(user_id, set())
+    
+    async with aiosqlite.connect(DB_NAME) as db:
+        async with db.execute("SELECT steam_id FROM tracked_steam WHERE user_id = ?", (user_id,)) as cursor:
+            rows = await cursor.fetchall()
+            tracked = [row[0] for row in rows]
     
     if not tracked:
-        await callback.answer(t(user_id, "no_tracked_steam"), show_alert=True)
+        await callback.message.answer(
+            t(user_id, "no_tracked_steam") + "\n\nОтправьте **SteamID64** или ссылку на профиль, чтобы добавить его в отслеживание:",
+            parse_mode="Markdown"
+        )
+        await state.set_state(SearchState.waiting_for_steam_track_id)
+        await callback.answer()
         return
         
-    # Запрашиваем никнеймы игроков через Steam API для красивого отображения в списке
     sids_str = ",".join(tracked)
     url = f"https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v0002/?key={STEAM_API_KEY}&steamids={sids_str}"
     
@@ -795,20 +825,86 @@ async def show_tracked_steam_list(callback: CallbackQuery):
     for sid in tracked:
         name = player_names.get(sid, f"ID: {sid}")
         keyboard.append([InlineKeyboardButton(text=f"🟢 {name}", callback_data=f"sel_id_{sid}")])
+    
+    keyboard.append([InlineKeyboardButton(text="➕ Добавить профиль", callback_data="prompt_add_steam_track")])
     keyboard.append([InlineKeyboardButton(text=t(user_id, "back_btn"), callback_data="go_home")])
     
-    await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard), parse_mode="Markdown")
+    try:
+        await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard), parse_mode="Markdown")
+    except Exception:
+        await callback.message.answer(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard), parse_mode="Markdown")
     await callback.answer()
+
+@router.callback_query(F.data == "prompt_add_steam_track")
+async def prompt_add_steam_track(callback: CallbackQuery, state: FSMContext):
+    user_id = callback.from_user.id
+    await callback.message.answer(
+        "Отправьте **SteamID64** или ссылку на Steam профиль для отслеживания:",
+        parse_mode="Markdown",
+        reply_markup=stop_search_keyboard(user_id)
+    )
+    await state.set_state(SearchState.waiting_for_steam_track_id)
+    await callback.answer()
+
+@router.message(SearchState.waiting_for_steam_track_id)
+async def process_steam_track_id_input(message: Message, state: FSMContext):
+    user_id = message.from_user.id
+    text = message.text.strip()
+    try:
+        await message.delete()
+    except Exception:
+        pass
+
+    steam_id = text
+    if "steamcommunity.com/id/" in text:
+        vanity = text.rstrip("/").split("/")[-1]
+        steam_id = await resolve_vanity_url(vanity)
+    elif "steamcommunity.com/profiles/" in text:
+        steam_id = text.rstrip("/").split("/")[-1]
+    else:
+        steam_id = await resolve_vanity_url(text)
+
+    if not steam_id.isdigit():
+        await message.answer("⚠️ Не удалось распознать Steam ID. Попробуйте еще раз:")
+        return
+
+    url = f"https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v0002/?key={STEAM_API_KEY}&steamids={steam_id}"
+    initial_status = 0
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url) as resp:
+                data = await resp.json()
+                players = data.get("response", {}).get("players", [])
+                if players:
+                    initial_status = players[0].get("personastate", 0)
+    except Exception as e:
+        logging.error(f"Error checking initial status: {e}")
+
+    async with aiosqlite.connect(DB_NAME) as db:
+        await db.execute(
+            "INSERT OR IGNORE INTO tracked_steam (user_id, steam_id, last_status) VALUES (?, ?, ?)",
+            (user_id, steam_id, initial_status)
+        )
+        await db.commit()
+
+    await state.clear()
+    await message.answer(f"✅ Профиль `{steam_id}` успешно добавлен в отслеживание Steam!", parse_mode="Markdown")
 
 async def background_player_monitor():
     while True:
         await asyncio.sleep(5)
         
-        all_sids = set()
+        all_rust_sids = set()
         for s_set in tracked_players_list.values():
-            all_sids.update(s_set)
-        for s_set in tracked_steam_status_list.values():
-            all_sids.update(s_set)
+            all_rust_sids.update(s_set)
+            
+        async with aiosqlite.connect(DB_NAME) as db:
+            async with db.execute("SELECT user_id, steam_id, last_status FROM tracked_steam") as cursor:
+                steam_rows = await cursor.fetchall()
+
+        all_sids = set(all_rust_sids)
+        for _, sid, _ in steam_rows:
+            all_sids.add(sid)
             
         if not all_sids:
             continue
@@ -822,12 +918,13 @@ async def background_player_monitor():
                     data = await resp.json()
                     players = data.get("response", {}).get("players", [])
                     
-                    for p in players:
-                        sid = p.get("steamid")
-                        name = p.get("personaname", "Player")
-                        gameid = str(p.get("gameid", ""))
-                        game_extra = p.get("gameextrainfo", "")
-                        state_val = p.get("personastate", 0)
+                    players_map = {p.get("steamid"): p for p in players}
+                    
+                    for sid, row_data in players_map.items():
+                        name = row_data.get("personaname", "Player")
+                        gameid = str(row_data.get("gameid", ""))
+                        game_extra = row_data.get("gameextrainfo", "")
+                        state_val = row_data.get("personastate", 0)
                         
                         is_in_rust = (gameid == "252490" or "Rust" in game_extra)
                         is_steam_online = (state_val > 0)
@@ -868,38 +965,44 @@ async def background_player_monitor():
                                 
                                 player_last_status[user_id][sid] = is_in_rust
 
-                        for user_id, user_sids in tracked_steam_status_list.items():
-                            if sid in user_sids:
-                                if user_id not in steam_profile_last_status:
-                                    steam_profile_last_status[user_id] = {}
-                                
-                                last_steam_status = steam_profile_last_status[user_id].get(sid)
-                                
-                                if last_steam_status is None:
-                                    steam_profile_last_status[user_id][sid] = is_steam_online
-                                    continue
+                    for user_id, sid, last_steam_status in steam_rows:
+                        p_data = players_map.get(sid)
+                        if not p_data:
+                            continue
+                        name = p_data.get("personaname", "Player")
+                        state_val = p_data.get("personastate", 0)
+                        is_steam_online = (state_val > 0)
+                        
+                        if last_steam_status is None:
+                            continue
 
-                                if is_steam_online and not last_steam_status:
-                                    try:
-                                        await bot.send_message(
-                                            user_id,
-                                            t(user_id, "notif_steam_online", name=name),
-                                            parse_mode="Markdown"
-                                        )
-                                    except Exception as e:
-                                        logging.error(f"Failed to send steam online notification: {e}")
+                        if is_steam_online and last_steam_status == 0:
+                            try:
+                                await bot.send_message(
+                                    user_id,
+                                    t(user_id, "notif_steam_online", name=name),
+                                    parse_mode="Markdown"
+                                )
+                            except Exception as e:
+                                logging.error(f"Failed to send steam online notification: {e}")
+                            
+                            async with aiosqlite.connect(DB_NAME) as db:
+                                await db.execute("UPDATE tracked_steam SET last_status = ? WHERE user_id = ? AND steam_id = ?", (state_val, user_id, sid))
+                                await db.commit()
+                        
+                        elif not is_steam_online and last_steam_status > 0:
+                            try:
+                                await bot.send_message(
+                                    user_id,
+                                    t(user_id, "notif_steam_offline", name=name),
+                                    parse_mode="Markdown"
+                                )
+                            except Exception as e:
+                                logging.error(f"Failed to send steam offline notification: {e}")
                                 
-                                elif not is_steam_online and last_steam_status:
-                                    try:
-                                        await bot.send_message(
-                                            user_id,
-                                            t(user_id, "notif_steam_offline", name=name),
-                                            parse_mode="Markdown"
-                                        )
-                                    except Exception as e:
-                                        logging.error(f"Failed to send steam offline notification: {e}")
-                                        
-                                steam_profile_last_status[user_id][sid] = is_steam_online
+                            async with aiosqlite.connect(DB_NAME) as db:
+                                await db.execute("UPDATE tracked_steam SET last_status = ? WHERE user_id = ? AND steam_id = ?", (0, user_id, sid))
+                                await db.commit()
 
         except Exception as e:
             logging.error(f"Background monitor error: {e}")
@@ -1229,6 +1332,7 @@ async def process_zayats_input(message: Message, state: FSMContext):
     await state.clear()
 
 async def main():
+    await init_db()
     dp.include_router(router)
     await bot.delete_webhook(drop_pending_updates=True)
     asyncio.create_task(background_player_monitor())
