@@ -24,12 +24,14 @@ router = Router()
 
 tracked_players_list = {}       # user_id -> set(steam_id) [для Rust]
 tracked_steam_list = {}         # user_id -> set(steam_id) [для Steam Онлайн/Оффлайн]
+tracked_pirate_list = {}        # user_id -> set(steam_id) [для Spacewar / пираток]
 search_cache = {}             
 last_search_message = {}      
 user_languages = {}           
 user_servers = {}             
 player_last_status = {}         # user_id -> {steam_id: is_in_rust}
 steam_profile_last_status = {}  # user_id -> {steam_id: personastate}
+pirate_profile_last_status = {} # user_id -> {steam_id: is_in_spacewar}
 
 LANGS = {
     "ru": {
@@ -43,6 +45,7 @@ LANGS = {
         "btn_raid": "💥 Калькулятор рейда",
         "btn_tracked": "👁 Мои отслеживания (Rust)",
         "btn_tracked_steam": "🟢 Отслеживание Steam",
+        "btn_tracked_pirate": "🏴‍☠️ Отслеживание пираток",
         "btn_zayats": "🐰 Заяц",
         "btn_about": "ℹ️ О боте / Язык",
         "zayats_prompt": "🐰 **Режим Заяц**\n\nОтправьте мне **Steam ID 64** или **кастомный URL/ник (буквенный)** игрока, чтобы получить ссылку на ruststats.io:",
@@ -74,8 +77,10 @@ LANGS = {
         "btn_calc_more": "🔄 Посчитать еще",
         "no_tracked": "У вас нет отслеживаемых игроков в Rust.",
         "no_tracked_steam": "У вас нет отслеживаемых Steam профилей.",
+        "no_tracked_pirate": "У вас нет отслеживаемых пираток (Spacewar).",
         "tracked_header": "👁 **Мои отслеживания (Rust):**\n",
         "tracked_steam_header": "🟢 **Отслеживание Steam:**\n",
+        "tracked_pirate_header": "🏴‍☠️ **Отслеживание пираток (Spacewar):**\n",
         "search_id_prompt": "Отправьте мне **Steam ID 64**, ссылку или ник профиля:",
         "search_nick_prompt": "Введите **никнейм** игрока для поиска с пагинацией:",
         "search_not_found": "❌ Игрок не найден. Попробуйте еще раз:",
@@ -92,17 +97,23 @@ LANGS = {
         "btn_stop_track": "🛑 Прекратить отслеживание (Rust)",
         "btn_track_steam": "🟢 Отслеживать Steam (Онлайн/Оффлайн)",
         "btn_stop_track_steam": "🛑 Прекратить отслеживание Steam",
+        "btn_track_pirate": "🏴‍☠️ Отслеживать пиратку (Spacewar)",
+        "btn_stop_track_pirate": "🛑 Прекратить отслеживание пиратки",
         "btn_check_bans": "🛡 Проверить баны",
         "bans_msg": "🛡 **Проверка банов для `{sid}`:**\n\n• Игровых/VAC банов: не обнаружено\n• Статус: Чист",
         "track_on": "✅ Отслеживание Rust успешно включено!",
         "track_off": "🛑 Отслеживание Rust остановлено.",
         "track_steam_on": "✅ Отслеживание Steam профиля включено!",
         "track_steam_off": "🛑 Отслеживание Steam профиля остановлено.",
+        "track_pirate_on": "✅ Отслеживание пиратки (Spacewar) включено!",
+        "track_pirate_off": "🛑 Отслеживание пиратки остановлено.",
         "notif_entered": "🔔 **Внимание!** Отслеживаемый игрок `{name}` зашел в Rust!",
         "notif_server": "🌐 **Игрок зашел на сервер:** `{server}`",
         "notif_left": "🔕 Игрок `{name}` вышел из Rust.",
         "notif_steam_online": "🟢 **Steam:** Игрок `{name}` зашел в сеть Steam!",
-        "notif_steam_offline": "🔴 **Steam:** Игрок `{name}` вышел из сети (оффлайн)."
+        "notif_steam_offline": "🔴 **Steam:** Игрок `{name}` вышел из сети (оффлайн).",
+        "notif_pirate_entered": "🏴‍☠️ **Внимание!** Игрок `{name}` зашел в пиратку (Spacewar)!",
+        "notif_pirate_left": "☑️ Игрок `{name}` покинул пиратку (Spacewar)."
     },
     "en": {
         "main_menu": "👋 **Bot Main Menu:**\n\nSelect a section using the buttons below:",
@@ -115,6 +126,7 @@ LANGS = {
         "btn_raid": "💥 Raid Calculator",
         "btn_tracked": "👁 My Tracked Players",
         "btn_tracked_steam": "🟢 Steam Tracking",
+        "btn_tracked_pirate": "🏴‍☠️ Pirate Tracking",
         "btn_zayats": "🐰 Zayats",
         "btn_about": "ℹ️ About Bot / Language",
         "zayats_prompt": "🐰 **Zayats Mode**\n\nSend me Steam ID 64:",
@@ -142,8 +154,10 @@ LANGS = {
         "btn_calc_more": "🔄 Calculate another",
         "no_tracked": "You have no tracked Rust players.",
         "no_tracked_steam": "You have no tracked Steam profiles.",
+        "no_tracked_pirate": "You have no tracked pirated games.",
         "tracked_header": "👁 **My Tracked Players:**\n",
         "tracked_steam_header": "🟢 **Steam Tracking List:**\n",
+        "tracked_pirate_header": "🏴‍☠️ **Pirate Tracking List:**\n",
         "search_id_prompt": "Send me **Steam ID 64** or profile link:",
         "search_nick_prompt": "Enter player **nickname**:",
         "search_not_found": "❌ Player not found.",
@@ -160,17 +174,23 @@ LANGS = {
         "btn_stop_track": "🛑 Stop Rust Track",
         "btn_track_steam": "🟢 Track Steam Status",
         "btn_stop_track_steam": "🛑 Stop Steam Track",
+        "btn_track_pirate": "🏴‍☠️ Track Pirate (Spacewar)",
+        "btn_stop_track_pirate": "🛑 Stop Pirate Track",
         "btn_check_bans": "🛡 Check Bans",
         "bans_msg": "🛡 Clean",
         "track_on": "✅ Tracking enabled!",
         "track_off": "🛑 Tracking stopped.",
         "track_steam_on": "✅ Steam tracking enabled!",
         "track_steam_off": "🛑 Steam tracking stopped.",
+        "track_pirate_on": "✅ Pirate tracking enabled!",
+        "track_pirate_off": "🛑 Pirate tracking stopped.",
         "notif_entered": "🔔 Tracked player `{name}` joined Rust!",
         "notif_server": "🌐 **Player joined server:** `{server}`",
         "notif_left": "🔕 Player `{name}` left Rust.",
         "notif_steam_online": "🟢 **Steam:** Player `{name}` came online!",
-        "notif_steam_offline": "🔴 **Steam:** Player `{name}` went offline."
+        "notif_steam_offline": "🔴 **Steam:** Player `{name}` went offline.",
+        "notif_pirate_entered": "🏴‍☠️ Player `{name}` joined Spacewar!",
+        "notif_pirate_left": "☑️ Player `{name}` left Spacewar."
     },
     "uk": {
         "main_menu": "👋 **Головне меню бота:**\n\nВиберіть потрібний розділ:",
@@ -183,6 +203,7 @@ LANGS = {
         "btn_raid": "💥 Рейд",
         "btn_tracked": "👁 Відстеження (Rust)",
         "btn_tracked_steam": "🟢 Відстеження Steam",
+        "btn_tracked_pirate": "🏴‍☠️ Відстеження піраток",
         "btn_zayats": "🐰 Заєць",
         "btn_about": "ℹ️ Про бота / Мова",
         "zayats_prompt": "🐰 **Режим Заєць**\n\nНадішліть Steam ID або нікнейм:",
@@ -210,8 +231,10 @@ LANGS = {
         "btn_calc_more": "🔄 Ще",
         "no_tracked": "Немає відстежень Rust.",
         "no_tracked_steam": "Немає відстежень Steam.",
+        "no_tracked_pirate": "Немає відстежень піраток.",
         "tracked_header": "👁 **Відстеження (Rust):**\n",
         "tracked_steam_header": "🟢 **Відстеження Steam:**\n",
+        "tracked_pirate_header": "🏴‍☠️ **Відстеження піраток:**\n",
         "search_id_prompt": "Надішліть Steam ID:",
         "search_nick_prompt": "Введіть нік:",
         "search_not_found": "❌ Не знайдено.",
@@ -228,17 +251,23 @@ LANGS = {
         "btn_stop_track": "🛑 Зупинити (Rust)",
         "btn_track_steam": "🟢 Стежити Steam (Онлайн/Оффлайн)",
         "btn_stop_track_steam": "🛑 Зупинити Steam",
+        "btn_track_pirate": "🏴‍☠️ Стежити піратку (Spacewar)",
+        "btn_stop_track_pirate": "🛑 Зупинити піратку",
         "btn_check_bans": "🛡 Бани",
         "bans_msg": "🛡 Чистий",
         "track_on": "✅ Відстеження Rust увімкнено!",
         "track_off": "🛑 Зупинено.",
         "track_steam_on": "✅ Steam відстеження увімкнено!",
         "track_steam_off": "🛑 Steam зупинено.",
+        "track_pirate_on": "🏴‍☠️ Відстеження піратки увімкнено!",
+        "track_pirate_off": "🛑 Відстеження піратки зупинено.",
         "notif_entered": "🔔 Гравець `{name}` зайшов у Rust!",
         "notif_server": "🌐 **Гравець зайшов на сервер:** `{server}`",
         "notif_left": "🔕 Гравець `{name}` вийшов з Rust.",
         "notif_steam_online": "🟢 **Steam:** Гравець `{name}` в мережі!",
-        "notif_steam_offline": "🔴 **Steam:** Гравець `{name}` вийшов (оффлайн)."
+        "notif_steam_offline": "🔴 **Steam:** Гравець `{name}` вийшов (оффлайн).",
+        "notif_pirate_entered": "🏴‍☠️ Гравець `{name}` зайшов у піратку (Spacewar)!",
+        "notif_pirate_left": "☑️ Гравець `{name}` покинув піратку."
     }
 }
 
@@ -246,6 +275,7 @@ class SearchState(StatesGroup):
     waiting_for_steam_id = State()
     waiting_for_nickname = State()
     waiting_for_steam_track_id = State()
+    waiting_for_pirate_track_id = State()
 
 class RustPlusFlowState(StatesGroup):
     waiting_for_ip = State()
@@ -279,6 +309,7 @@ def main_keyboard(user_id):
             InlineKeyboardButton(text=t(user_id, "btn_tracked"), callback_data="show_tracked_list"),
             InlineKeyboardButton(text=t(user_id, "btn_tracked_steam"), callback_data="show_tracked_steam_list")
         ],
+        [InlineKeyboardButton(text=t(user_id, "btn_tracked_pirate"), callback_data="show_tracked_pirate_list")],
         [InlineKeyboardButton(text=t(user_id, "btn_zayats"), callback_data="zayats_menu_start")],
         [InlineKeyboardButton(text=t(user_id, "btn_about"), callback_data="about_bot")]
     ]
@@ -289,12 +320,12 @@ def stop_search_keyboard(user_id):
         [InlineKeyboardButton(text=t(user_id, "stop_search"), callback_data="go_home")]
     ])
 
-def back_keyboard(user_id):
+def back_keyboard(user_id, back_callback="go_home"):
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=t(user_id, "back_btn"), callback_data="go_home")]
+        [InlineKeyboardButton(text=t(user_id, "back_btn"), callback_data=back_callback)]
     ])
 
-def result_keyboard(user_id, steam_id, is_tracked=False, is_steam_tracked=False, from_steam_menu=False):
+def result_keyboard(user_id, steam_id, is_tracked=False, is_steam_tracked=False, is_pirate_tracked=False, menu_source="home"):
     if is_tracked:
         track_btn = InlineKeyboardButton(text=t(user_id, "btn_stop_track"), callback_data=f"stop_track_{steam_id}")
     else:
@@ -304,18 +335,29 @@ def result_keyboard(user_id, steam_id, is_tracked=False, is_steam_tracked=False,
         [track_btn]
     ]
 
-    if from_steam_menu:
-        if is_steam_tracked:
-            keyboard.append([InlineKeyboardButton(text=t(user_id, "btn_stop_track_steam"), callback_data=f"stop_steam_track_profile_{steam_id}")])
-        else:
-            keyboard.append([InlineKeyboardButton(text=t(user_id, "btn_track_steam"), callback_data=f"start_steam_track_profile_{steam_id}")])
+    # Кнопка отслеживания Steam (Вкл/Выкл)
+    if is_steam_tracked:
+        keyboard.append([InlineKeyboardButton(text=t(user_id, "btn_stop_track_steam"), callback_data=f"stop_steam_track_profile_{steam_id}")])
+    else:
+        keyboard.append([InlineKeyboardButton(text=t(user_id, "btn_track_steam"), callback_data=f"start_steam_track_profile_{steam_id}")])
+
+    # Кнопка отслеживания пираток (Spacewar) (Вкл/Выкл)
+    if is_pirate_tracked:
+        keyboard.append([InlineKeyboardButton(text=t(user_id, "btn_stop_track_pirate"), callback_data=f"stop_pirate_track_profile_{steam_id}")])
+    else:
+        keyboard.append([InlineKeyboardButton(text=t(user_id, "btn_track_pirate"), callback_data=f"start_pirate_track_profile_{steam_id}")])
 
     keyboard.append([InlineKeyboardButton(text=t(user_id, "btn_check_bans"), callback_data=f"check_bans_{steam_id}")])
     
-    if from_steam_menu:
-        keyboard.append([InlineKeyboardButton(text=t(user_id, "back_btn"), callback_data="show_tracked_steam_list")])
+    # Интеллектуальная кнопка возврата в зависимости от того, откуда открыт профиль
+    if menu_source == "steam":
+        back_cb = "show_tracked_steam_list"
+    elif menu_source == "pirate":
+        back_cb = "show_tracked_pirate_list"
     else:
-        keyboard.append([InlineKeyboardButton(text=t(user_id, "back_btn"), callback_data="go_home")])
+        back_cb = "go_home"
+
+    keyboard.append([InlineKeyboardButton(text=t(user_id, "back_btn"), callback_data=back_cb)])
 
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
@@ -417,7 +459,7 @@ async def process_steam_id_input(message: Message, state: FSMContext):
         except Exception:
             pass
 
-    await show_player_profile_by_id(user_id, steam_id, msg_id, state, from_steam_menu=False)
+    await show_player_profile_by_id(user_id, steam_id, msg_id, state, menu_source="home")
 
 async def resolve_vanity_url(query: str) -> str:
     if query.isdigit() and len(query) == 17:
@@ -461,7 +503,7 @@ async def fetch_rust_playtime(steam_id: str) -> tuple:
         logging.error(f"Error fetching rust playtime: {e}")
     return total_hours, two_weeks_hours
 
-async def show_player_profile_by_id(user_id: int, steam_id: str, msg_id: int, state: FSMContext, from_steam_menu: bool = False):
+async def show_player_profile_by_id(user_id: int, steam_id: str, msg_id: int, state: FSMContext, menu_source: str = "home"):
     url = f"https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v0002/?key={STEAM_API_KEY}&steamids={steam_id}"
     
     async with aiohttp.ClientSession() as session:
@@ -470,7 +512,8 @@ async def show_player_profile_by_id(user_id: int, steam_id: str, msg_id: int, st
             players = data.get("response", {}).get("players", [])
             if not players:
                 if msg_id:
-                    await bot.edit_message_text(t(user_id, "profile_hidden"), chat_id=user_id, message_id=msg_id, reply_markup=back_keyboard(user_id))
+                    back_cb = "show_tracked_steam_list" if menu_source == "steam" else ("show_tracked_pirate_list" if menu_source == "pirate" else "go_home")
+                    await bot.edit_message_text(t(user_id, "profile_hidden"), chat_id=user_id, message_id=msg_id, reply_markup=back_keyboard(user_id, back_callback=back_cb))
                 return
             
             p = players[0]
@@ -497,6 +540,7 @@ async def show_player_profile_by_id(user_id: int, steam_id: str, msg_id: int, st
 
             is_tracked = user_id in tracked_players_list and steam_id in tracked_players_list[user_id]
             is_steam_tracked = user_id in tracked_steam_list and steam_id in tracked_steam_list[user_id]
+            is_pirate_tracked = user_id in tracked_pirate_list and steam_id in tracked_pirate_list[user_id]
             
             text = t(
                 user_id, "profile_view", 
@@ -510,7 +554,7 @@ async def show_player_profile_by_id(user_id: int, steam_id: str, msg_id: int, st
                 sid=steam_id
             )
             
-            markup = result_keyboard(user_id, steam_id, is_tracked, is_steam_tracked, from_steam_menu)
+            markup = result_keyboard(user_id, steam_id, is_tracked, is_steam_tracked, is_pirate_tracked, menu_source)
             if msg_id:
                 try:
                     await bot.edit_message_text(
@@ -624,12 +668,17 @@ async def select_searched_id(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
     steam_id = callback.data.split("_")[-1]
     
-    from_steam_menu = callback.message.reply_markup and any(
-        any("show_tracked_steam_list" in (btn.callback_data or "") or "steam_track" in (btn.callback_data or "") for btn in row)
-        for row in callback.message.reply_markup.inline_keyboard
-    )
+    # Определяем контекст возврата на основе кнопок текущей разметки
+    menu_source = "home"
+    if callback.message.reply_markup:
+        for row in callback.message.reply_markup.inline_keyboard:
+            for btn in row:
+                if btn.callback_data == "show_tracked_steam_list":
+                    menu_source = "steam"
+                elif btn.callback_data == "show_tracked_pirate_list":
+                    menu_source = "pirate"
     
-    await show_player_profile_by_id(user_id, steam_id, callback.message.message_id, state, from_steam_menu=from_steam_menu)
+    await show_player_profile_by_id(user_id, steam_id, callback.message.message_id, state, menu_source=menu_source)
     await callback.answer()
 
 @router.callback_query(F.data.startswith("check_bans_"))
@@ -688,10 +737,18 @@ async def start_track_player(callback: CallbackQuery):
 
     await callback.answer(t(user_id, "track_on"), show_alert=True)
     try:
-        from_steam_menu = callback.message.reply_markup and any(any("show_tracked_steam_list" in (b.callback_data or "") for b in r) for r in callback.message.reply_markup.inline_keyboard)
+        menu_source = "home"
+        if callback.message.reply_markup:
+            for row in callback.message.reply_markup.inline_keyboard:
+                for b in row:
+                    if b.callback_data == "show_tracked_steam_list":
+                        menu_source = "steam"
+                    elif b.callback_data == "show_tracked_pirate_list":
+                        menu_source = "pirate"
         is_tracked = True
         is_steam_tracked = user_id in tracked_steam_list and steam_id in tracked_steam_list[user_id]
-        await callback.message.edit_reply_markup(reply_markup=result_keyboard(user_id, steam_id, is_tracked=is_tracked, is_steam_tracked=is_steam_tracked, from_steam_menu=from_steam_menu))
+        is_pirate_tracked = user_id in tracked_pirate_list and steam_id in tracked_pirate_list[user_id]
+        await callback.message.edit_reply_markup(reply_markup=result_keyboard(user_id, steam_id, is_tracked=is_tracked, is_steam_tracked=is_steam_tracked, is_pirate_tracked=is_pirate_tracked, menu_source=menu_source))
     except Exception:
         pass
 
@@ -708,10 +765,18 @@ async def stop_track_player(callback: CallbackQuery):
 
     await callback.answer(t(user_id, "track_off"), show_alert=True)
     try:
-        from_steam_menu = callback.message.reply_markup and any(any("show_tracked_steam_list" in (b.callback_data or "") for b in r) for r in callback.message.reply_markup.inline_keyboard)
+        menu_source = "home"
+        if callback.message.reply_markup:
+            for row in callback.message.reply_markup.inline_keyboard:
+                for b in row:
+                    if b.callback_data == "show_tracked_steam_list":
+                        menu_source = "steam"
+                    elif b.callback_data == "show_tracked_pirate_list":
+                        menu_source = "pirate"
         is_tracked = False
         is_steam_tracked = user_id in tracked_steam_list and steam_id in tracked_steam_list[user_id]
-        await callback.message.edit_reply_markup(reply_markup=result_keyboard(user_id, steam_id, is_tracked=is_tracked, is_steam_tracked=is_steam_tracked, from_steam_menu=from_steam_menu))
+        is_pirate_tracked = user_id in tracked_pirate_list and steam_id in tracked_pirate_list[user_id]
+        await callback.message.edit_reply_markup(reply_markup=result_keyboard(user_id, steam_id, is_tracked=is_tracked, is_steam_tracked=is_steam_tracked, is_pirate_tracked=is_pirate_tracked, menu_source=menu_source))
     except Exception:
         pass
 
@@ -742,9 +807,18 @@ async def start_steam_track_profile(callback: CallbackQuery):
 
     await callback.answer(t(user_id, "track_steam_on"), show_alert=True)
     try:
+        menu_source = "home"
+        if callback.message.reply_markup:
+            for row in callback.message.reply_markup.inline_keyboard:
+                for b in row:
+                    if b.callback_data == "show_tracked_steam_list":
+                        menu_source = "steam"
+                    elif b.callback_data == "show_tracked_pirate_list":
+                        menu_source = "pirate"
         is_tracked = user_id in tracked_players_list and steam_id in tracked_players_list[user_id]
         is_steam_tracked = True
-        await callback.message.edit_reply_markup(reply_markup=result_keyboard(user_id, steam_id, is_tracked=is_tracked, is_steam_tracked=is_steam_tracked, from_steam_menu=True))
+        is_pirate_tracked = user_id in tracked_pirate_list and steam_id in tracked_pirate_list[user_id]
+        await callback.message.edit_reply_markup(reply_markup=result_keyboard(user_id, steam_id, is_tracked=is_tracked, is_steam_tracked=is_steam_tracked, is_pirate_tracked=is_pirate_tracked, menu_source=menu_source))
     except Exception:
         pass
 
@@ -760,9 +834,92 @@ async def stop_steam_track_profile(callback: CallbackQuery):
 
     await callback.answer(t(user_id, "track_steam_off"), show_alert=True)
     try:
+        menu_source = "home"
+        if callback.message.reply_markup:
+            for row in callback.message.reply_markup.inline_keyboard:
+                for b in row:
+                    if b.callback_data == "show_tracked_steam_list":
+                        menu_source = "steam"
+                    elif b.callback_data == "show_tracked_pirate_list":
+                        menu_source = "pirate"
         is_tracked = user_id in tracked_players_list and steam_id in tracked_players_list[user_id]
         is_steam_tracked = False
-        await callback.message.edit_reply_markup(reply_markup=result_keyboard(user_id, steam_id, is_tracked=is_tracked, is_steam_tracked=is_steam_tracked, from_steam_menu=True))
+        is_pirate_tracked = user_id in tracked_pirate_list and steam_id in tracked_pirate_list[user_id]
+        await callback.message.edit_reply_markup(reply_markup=result_keyboard(user_id, steam_id, is_tracked=is_tracked, is_steam_tracked=is_steam_tracked, is_pirate_tracked=is_pirate_tracked, menu_source=menu_source))
+    except Exception:
+        pass
+
+# --- Функции для отслеживания пиратки (Spacewar / appid 480) ---
+
+@router.callback_query(F.data.startswith("start_pirate_track_profile_"))
+async def start_pirate_track_profile(callback: CallbackQuery):
+    user_id = callback.from_user.id
+    steam_id = callback.data.split("_")[-1]
+
+    if user_id not in tracked_pirate_list:
+        tracked_pirate_list[user_id] = set()
+    tracked_pirate_list[user_id].add(steam_id)
+
+    url = f"https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v0002/?key={STEAM_API_KEY}&steamids={steam_id}"
+    initial_is_spacewar = False
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url) as resp:
+                data = await resp.json()
+                players = data.get("response", {}).get("players", [])
+                if players:
+                    p = players[0]
+                    gameid = str(p.get("gameid", ""))
+                    game_extra = p.get("gameextrainfo", "")
+                    initial_is_spacewar = (gameid == "480" or "spacewar" in game_extra.lower())
+    except Exception as e:
+        logging.error(f"Error checking initial pirate status: {e}")
+
+    if user_id not in pirate_profile_last_status:
+        pirate_profile_last_status[user_id] = {}
+    pirate_profile_last_status[user_id][steam_id] = initial_is_spacewar
+
+    await callback.answer(t(user_id, "track_pirate_on"), show_alert=True)
+    try:
+        menu_source = "home"
+        if callback.message.reply_markup:
+            for row in callback.message.reply_markup.inline_keyboard:
+                for b in row:
+                    if b.callback_data == "show_tracked_steam_list":
+                        menu_source = "steam"
+                    elif b.callback_data == "show_tracked_pirate_list":
+                        menu_source = "pirate"
+        is_tracked = user_id in tracked_players_list and steam_id in tracked_players_list[user_id]
+        is_steam_tracked = user_id in tracked_steam_list and steam_id in tracked_steam_list[user_id]
+        is_pirate_tracked = True
+        await callback.message.edit_reply_markup(reply_markup=result_keyboard(user_id, steam_id, is_tracked=is_tracked, is_steam_tracked=is_steam_tracked, is_pirate_tracked=is_pirate_tracked, menu_source=menu_source))
+    except Exception:
+        pass
+
+@router.callback_query(F.data.startswith("stop_pirate_track_profile_"))
+async def stop_pirate_track_profile(callback: CallbackQuery):
+    user_id = callback.from_user.id
+    steam_id = callback.data.split("_")[-1]
+
+    if user_id in tracked_pirate_list:
+        tracked_pirate_list[user_id].discard(steam_id)
+    if user_id in pirate_profile_last_status:
+        pirate_profile_last_status[user_id].pop(steam_id, None)
+
+    await callback.answer(t(user_id, "track_pirate_off"), show_alert=True)
+    try:
+        menu_source = "home"
+        if callback.message.reply_markup:
+            for row in callback.message.reply_markup.inline_keyboard:
+                for b in row:
+                    if b.callback_data == "show_tracked_steam_list":
+                        menu_source = "steam"
+                    elif b.callback_data == "show_tracked_pirate_list":
+                        menu_source = "pirate"
+        is_tracked = user_id in tracked_players_list and steam_id in tracked_players_list[user_id]
+        is_steam_tracked = user_id in tracked_steam_list and steam_id in tracked_steam_list[user_id]
+        is_pirate_tracked = False
+        await callback.message.edit_reply_markup(reply_markup=result_keyboard(user_id, steam_id, is_tracked=is_tracked, is_steam_tracked=is_steam_tracked, is_pirate_tracked=is_pirate_tracked, menu_source=menu_source))
     except Exception:
         pass
 
@@ -820,9 +977,57 @@ async def show_tracked_steam_list(callback: CallbackQuery, state: FSMContext):
     keyboard = []
     for sid in tracked:
         name = player_names.get(sid, f"ID: {sid}")
+        # Передаем в callback просмотр профиля с пометкой, что пришли из раздела steam
         keyboard.append([InlineKeyboardButton(text=f"🟢 {name}", callback_data=f"sel_id_{sid}")])
     
     keyboard.append([InlineKeyboardButton(text="➕ Добавить профиль", callback_data="prompt_add_steam_track")])
+    keyboard.append([InlineKeyboardButton(text=t(user_id, "back_btn"), callback_data="go_home")])
+    
+    try:
+        await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard), parse_mode="Markdown")
+    except Exception:
+        await callback.message.answer(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard), parse_mode="Markdown")
+    await callback.answer()
+
+@router.callback_query(F.data == "show_tracked_pirate_list")
+async def show_tracked_pirate_list(callback: CallbackQuery, state: FSMContext):
+    user_id = callback.from_user.id
+    tracked = tracked_pirate_list.get(user_id, set())
+    
+    if not tracked:
+        keyboard = [
+            [InlineKeyboardButton(text="➕ Добавить профиль", callback_data="prompt_add_pirate_track")],
+            [InlineKeyboardButton(text=t(user_id, "back_btn"), callback_data="go_home")]
+        ]
+        await callback.message.edit_text(
+            t(user_id, "no_tracked_pirate") + "\n\nНажмите кнопку ниже, чтобы добавить профиль:",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard),
+            parse_mode="Markdown"
+        )
+        await callback.answer()
+        return
+        
+    sids_str = ",".join(tracked)
+    url = f"https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v0002/?key={STEAM_API_KEY}&steamids={sids_str}"
+    
+    player_names = {}
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url) as resp:
+                data = await resp.json()
+                players = data.get("response", {}).get("players", [])
+                for p in players:
+                    player_names[p.get("steamid")] = p.get("personaname", "Player")
+    except Exception as e:
+        logging.error(f"Error fetching tracked pirate names: {e}")
+
+    text = t(user_id, "tracked_pirate_header")
+    keyboard = []
+    for sid in tracked:
+        name = player_names.get(sid, f"ID: {sid}")
+        keyboard.append([InlineKeyboardButton(text=f"🏴‍☠️ {name}", callback_data=f"sel_id_{sid}")])
+    
+    keyboard.append([InlineKeyboardButton(text="➕ Добавить профиль", callback_data="prompt_add_pirate_track")])
     keyboard.append([InlineKeyboardButton(text=t(user_id, "back_btn"), callback_data="go_home")])
     
     try:
@@ -835,11 +1040,22 @@ async def show_tracked_steam_list(callback: CallbackQuery, state: FSMContext):
 async def prompt_add_steam_track(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
     await callback.message.edit_text(
-        "Отправьте **SteamID64** или ссылку на Steam профиль для отслеживания:",
+        "Отправьте **SteamID64** или ссылку на Steam профиль для отслеживания Steam:",
         parse_mode="Markdown",
         reply_markup=stop_search_keyboard(user_id)
     )
     await state.set_state(SearchState.waiting_for_steam_track_id)
+    await callback.answer()
+
+@router.callback_query(F.data == "prompt_add_pirate_track")
+async def prompt_add_pirate_track(callback: CallbackQuery, state: FSMContext):
+    user_id = callback.from_user.id
+    await callback.message.edit_text(
+        "Отправьте **SteamID64** или ссылку на Steam профиль для отслеживания пиратки (Spacewar):",
+        parse_mode="Markdown",
+        reply_markup=stop_search_keyboard(user_id)
+    )
+    await state.set_state(SearchState.waiting_for_pirate_track_id)
     await callback.answer()
 
 @router.message(SearchState.waiting_for_steam_track_id)
@@ -885,7 +1101,55 @@ async def process_steam_track_id_input(message: Message, state: FSMContext):
     steam_profile_last_status[user_id][steam_id] = initial_status
 
     await state.clear()
-    await message.answer(f"✅ Профиль `{steam_id}` успешно добавлен в отслеживание Steam!", parse_mode="Markdown", reply_markup=back_keyboard(user_id))
+    await message.answer(f"✅ Профиль `{steam_id}` успешно добавлен в отслеживание Steam!", parse_mode="Markdown", reply_markup=back_keyboard(user_id, back_callback="show_tracked_steam_list"))
+
+@router.message(SearchState.waiting_for_pirate_track_id)
+async def process_pirate_track_id_input(message: Message, state: FSMContext):
+    user_id = message.from_user.id
+    text = message.text.strip()
+    try:
+        await message.delete()
+    except Exception:
+        pass
+
+    steam_id = text
+    if "steamcommunity.com/id/" in text:
+        vanity = text.rstrip("/").split("/")[-1]
+        steam_id = await resolve_vanity_url(vanity)
+    elif "steamcommunity.com/profiles/" in text:
+        steam_id = text.rstrip("/").split("/")[-1]
+    else:
+        steam_id = await resolve_vanity_url(text)
+
+    if not steam_id.isdigit():
+        await message.answer("⚠️ Не удалось распознать Steam ID. Попробуйте еще раз:")
+        return
+
+    if user_id not in tracked_pirate_list:
+        tracked_pirate_list[user_id] = set()
+    tracked_pirate_list[user_id].add(steam_id)
+
+    url = f"https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v0002/?key={STEAM_API_KEY}&steamids={steam_id}"
+    initial_is_spacewar = False
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url) as resp:
+                data = await resp.json()
+                players = data.get("response", {}).get("players", [])
+                if players:
+                    p = players[0]
+                    gameid = str(p.get("gameid", ""))
+                    game_extra = p.get("gameextrainfo", "")
+                    initial_is_spacewar = (gameid == "480" or "spacewar" in game_extra.lower())
+    except Exception as e:
+        logging.error(f"Error checking initial pirate status: {e}")
+
+    if user_id not in pirate_profile_last_status:
+        pirate_profile_last_status[user_id] = {}
+    pirate_profile_last_status[user_id][steam_id] = initial_is_spacewar
+
+    await state.clear()
+    await message.answer(f"✅ Профиль `{steam_id}` успешно добавлен в отслеживание пираток (Spacewar)!", parse_mode="Markdown", reply_markup=back_keyboard(user_id, back_callback="show_tracked_pirate_list"))
 
 async def background_player_monitor():
     while True:
@@ -899,7 +1163,11 @@ async def background_player_monitor():
         for s_set in tracked_steam_list.values():
             all_steam_sids.update(s_set)
 
-        all_sids = all_rust_sids.union(all_steam_sids)
+        all_pirate_sids = set()
+        for s_set in tracked_pirate_list.values():
+            all_pirate_sids.update(s_set)
+
+        all_sids = all_rust_sids.union(all_steam_sids).union(all_pirate_sids)
             
         if not all_sids:
             continue
@@ -914,6 +1182,7 @@ async def background_player_monitor():
                     players = data.get("response", {}).get("players", [])
                     players_map = {p.get("steamid"): p for p in players}
                     
+                    # 1. Мониторинг Rust
                     for user_id, user_sids in tracked_players_list.items():
                         for sid in user_sids:
                             row_data = players_map.get(sid)
@@ -948,6 +1217,7 @@ async def background_player_monitor():
                             
                             player_last_status[user_id][sid] = is_in_rust
 
+                    # 2. Мониторинг Steam Онлайн/Оффлайн
                     for user_id, user_sids in tracked_steam_list.items():
                         for sid in user_sids:
                             p_data = players_map.get(sid)
@@ -980,6 +1250,38 @@ async def background_player_monitor():
                                 except Exception as e:
                                     logging.error(f"Failed to send steam offline notification: {e}")
                                 steam_profile_last_status[user_id][sid] = state_val
+
+                    # 3. Мониторинг Пираток (Spacewar / appid 480)
+                    for user_id, user_sids in tracked_pirate_list.items():
+                        for sid in user_sids:
+                            p_data = players_map.get(sid)
+                            if not p_data:
+                                continue
+                            name = p_data.get("personaname", "Player")
+                            gameid = str(p_data.get("gameid", ""))
+                            game_extra = p_data.get("gameextrainfo", "")
+                            is_in_spacewar = (gameid == "480" or "spacewar" in game_extra.lower())
+
+                            if user_id not in pirate_profile_last_status:
+                                pirate_profile_last_status[user_id] = {}
+
+                            last_pirate_status = pirate_profile_last_status[user_id].get(sid)
+                            if last_pirate_status is None:
+                                pirate_profile_last_status[user_id][sid] = is_in_spacewar
+                                continue
+
+                            if is_in_spacewar and not last_pirate_status:
+                                try:
+                                    await bot.send_message(user_id, t(user_id, "notif_pirate_entered", name=name), parse_mode="Markdown")
+                                except Exception as e:
+                                    logging.error(f"Failed to send pirate enter notification: {e}")
+                            elif not is_in_spacewar and last_pirate_status:
+                                try:
+                                    await bot.send_message(user_id, t(user_id, "notif_pirate_left", name=name), parse_mode="Markdown")
+                                except Exception as e:
+                                    logging.error(f"Failed to send pirate leave notification: {e}")
+
+                            pirate_profile_last_status[user_id][sid] = is_in_spacewar
 
         except Exception as e:
             logging.error(f"Background monitor error: {e}")
@@ -1026,7 +1328,7 @@ async def rp_tab_map(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
     await callback.message.edit_text(
         t(user_id, "rp_prompt_map_search"),
-        reply_markup=back_keyboard(user_id),
+        reply_markup=back_keyboard(user_id, back_callback="rust_plus_menu"),
         parse_mode="Markdown"
     )
     await state.set_state(RustPlusFlowState.waiting_for_map_input)
@@ -1131,7 +1433,7 @@ async def rp_add_server_prompt(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
     await callback.message.edit_text(
         t(user_id, "rp_prompt_ip"),
-        reply_markup=back_keyboard(user_id),
+        reply_markup=back_keyboard(user_id, back_callback="rust_plus_menu"),
         parse_mode="Markdown"
     )
     await state.set_state(RustPlusFlowState.waiting_for_ip)
@@ -1151,7 +1453,7 @@ async def rp_save_server(message: Message, state: FSMContext):
     if srv_name not in user_servers[user_id]:
         user_servers[user_id].append(srv_name)
         
-    await message.answer(t(user_id, "rp_server_added"), reply_markup=back_keyboard(user_id))
+    await message.answer(t(user_id, "rp_server_added"), reply_markup=back_keyboard(user_id, back_callback="rust_plus_menu"))
     await state.clear()
 
 @router.callback_query(F.data == "rp_del_server_menu")
